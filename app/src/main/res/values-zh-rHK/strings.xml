@@ -335,7 +335,6 @@
     <string name="words_loading">正在查詢詞語…</string>
 
     <string name="lens_loading">正在查詢…</string>
-    <string name="lens_also_matches">其他相符</string>
     <string name="load_more_count">載入更多（<xliff:g id="count" example="2">%1$d</xliff:g>）</string>
     <string name="section_other_matches">其他相符</string>
 
@@ -1622,9 +1621,7 @@
 
     <string name="pt_cloud_translate_row_subtitle_no_key">內置頂尖付費翻譯模型</string>
 
-    <string name="pt_cloud_key_label">客戶端金鑰</string>
 
-    <string name="pt_cloud_key_hint">貼上你收到的金鑰</string>
 
     <string name="pt_cloud_status_title">服務</string>
 

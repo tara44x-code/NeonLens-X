@@ -336,7 +336,6 @@
     <string name="words_loading">Buscando palabras…</string>
 
     <string name="lens_loading">Buscando…</string>
-    <string name="lens_also_matches">Otra coincidencia</string>
     <string name="load_more_count">Cargar más (<xliff:g id="count" example="2">%1$d</xliff:g>)</string>
     <string name="section_other_matches">Otras coincidencias</string>
 
@@ -1581,9 +1580,7 @@
 
     <string name="pt_cloud_translate_row_subtitle_no_key">Los mejores modelos de traducción de pago, ya incluidos</string>
 
-    <string name="pt_cloud_key_label">Clave de cliente</string>
 
-    <string name="pt_cloud_key_hint">Pega la clave que te dieron</string>
 
     <string name="pt_cloud_status_title">Servicio</string>
 

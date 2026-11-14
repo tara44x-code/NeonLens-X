@@ -311,7 +311,6 @@
     <string name="words_loading">กำลังค้นหาคำ…</string>
 
     <string name="lens_loading">กำลังค้นหา…</string>
-    <string name="lens_also_matches">อีกคำที่ตรงกัน</string>
     <string name="load_more_count">โหลดเพิ่มเติม (<xliff:g id="count" example="2">%1$d</xliff:g>)</string>
     <string name="section_other_matches">คำอื่นที่ตรงกัน</string>
 
@@ -1504,9 +1503,7 @@
 
     <string name="pt_cloud_translate_row_subtitle_no_key">รวมโมเดลการแปลแบบชำระเงินที่ดีที่สุดไว้แล้ว</string>
 
-    <string name="pt_cloud_key_label">คีย์ไคลเอนต์</string>
 
-    <string name="pt_cloud_key_hint">วางคีย์ที่คุณได้รับ</string>
 
     <string name="pt_cloud_status_title">บริการ</string>
 
