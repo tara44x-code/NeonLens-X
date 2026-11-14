@@ -23,6 +23,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # MNN ships an old flatbuffers sample with its own gradle-wrapper.jar that
+      # setup-gradle does not recognise. The build never uses it, so drop it
+      # instead of turning wrapper validation off.
+      - name: Remove unused sample wrapper from MNN
+        run: rm -f mnn/third-party/MNN/3rd_party/flatbuffers/samples/android/gradle/wrapper/gradle-wrapper.jar
+
       - uses: gradle/actions/setup-gradle@v4
 
       # Keep one signing key between runs so a new APK installs over the old
