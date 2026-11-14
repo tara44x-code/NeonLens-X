@@ -1,0 +1,54 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Keep one signing key between runs so a new APK installs over the old
+      # one. Replace with your own keystore in repository secrets for releases.
+      - name: Restore signing key
+        id: keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: neonlensx-signing-key-v1
+      - name: Create signing key
+        if: steps.keystore.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.android
+          keytool -genkeypair -v -keystore ~/.android/debug.keystore -storepass android \
+            -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=NeonLens X,O=NeonLens X,C=IQ"
+
+      - name: Unit tests for the NeonLens X changes
+        run: ./gradlew :app:testDebugUnitTest --tests 'com.playtranslate.ui.OverlayStyleTest' --console=plain
+
+      - name: Build release APK
+        run: ./gradlew :app:assembleRelease --console=plain
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NeonLensX-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

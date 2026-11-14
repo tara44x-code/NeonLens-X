@@ -1,0 +1,665 @@
+package com.playtranslate.ui
+
+import android.content.Context
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.playtranslate.OneShotOverlayData
+import com.playtranslate.Prefs
+import com.playtranslate.ask.AskSession
+import com.playtranslate.language.InflectedForm
+import com.playtranslate.language.TokenSpan
+import com.playtranslate.model.FrequencyTag
+import com.playtranslate.model.ImportedSenseGroup
+import com.playtranslate.model.OcrProvenance
+import com.playtranslate.model.PendingTranslation
+import com.playtranslate.model.ReadingRow
+import com.playtranslate.model.TextSegment
+import com.playtranslate.model.TextSegments
+import com.playtranslate.model.TranslationResult
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * Source of truth for the translation-result surface, scoped per
+ * activity. Owns:
+ *   - the [result] state machine (Idle / Status / Translating /
+ *     Ready / Error), which the fragment renders via observation
+ *   - the [wordLookups] pipeline in its two tiers (see [WordLookupsState]):
+ *     the analysis every result runs, and the dictionary rows only a
+ *     visible Words card asks for ([requestWordRows]); both coroutines run
+ *     on [viewModelScope] so rotation mid-lookup preserves progress
+ *   - the [liveHint] state for live-mode UI hints
+ *
+ * Activities mutate state through this VM's methods; the fragment
+ * is a renderer + event emitter (no public mutator methods of its
+ * own). [TranslationResultActivity] also uses VM state to feed the
+ * embedded [WordDetailBottomSheet] via [SentenceContextProvider], and the
+ * floating workspace's lookup page feeds its word page the same way
+ * ([sentenceContext]).
+ *
+ * Two owners: the Activities get theirs from a ViewModelStore (the no-arg
+ * constructor; cleared with the store), and a workspace page constructs its
+ * own with the page's scope, so the lookup pipeline dies with the page.
+ * Either way [viewModelScope] IS the scope handed to the platform
+ * constructor, and it is cancelled when that owner ends.
+ */
+class TranslationResultViewModel(scope: CoroutineScope) : ViewModel(scope) {
+
+    /** Store-owned: the platform default scope, so a factory-created VM
+     *  behaves exactly as before. */
+    constructor() : this(CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
+
+    private val _result = MutableStateFlow<ResultState>(ResultState.Idle)
+    val result: StateFlow<ResultState> = _result.asStateFlow()
+
+    /** The on-screen boxes of the state the results page last rendered (two
+     *  screens): what a capture's arrival is read against
+     *  ([onScreenStep]), and what the page's mode row shows and
+     *  its picks put up. Held here, not in the page, so a page recreated
+     *  over the same result (a theme, dark-mode or locale change recreates
+     *  the activity, and this model outlives it) replays it as the capture
+     *  it already was and puts nothing back up on the game display. */
+    var renderedOnScreenBoxes: OnScreenBoxes? = null
+
+    /** The word lookup of the text on show, both tiers
+     *  ([WordLookupPipeline]), on [viewModelScope] so a rotation mid-lookup
+     *  keeps its progress. Its rows settling is one of the two moments the
+     *  sentence cache is written ([writeLastSentenceCache]). */
+    private val lookups = WordLookupPipeline(viewModelScope).also {
+        it.onRowsSettled = ::writeLastSentenceCache
+    }
+    val wordLookups: StateFlow<WordLookupsState> get() = lookups.state
+
+    /** The Ask section's question and answer about the sentence on show.
+     *  Here, beside the result it is about, so it outlives a rebuilt page
+     *  as the result does; the page says which sentence is on show from its
+     *  render funnel ([AskSession.bind]), which is what ends a question
+     *  when the sentence changes. */
+    val ask = AskSession(viewModelScope)
+
+    // ── Dedup architecture (read this before changing displayResult) ────
+    //
+    // Two layers cooperate to prevent redundant work and UI flicker
+    // when the same result is emitted multiple times (sticky StateFlow
+    // replay on lifecycle reattach, etc.):
+    //
+    //   Layer 1 — VM identity dedup (`===`).
+    //     [displayResult] / [displayServiceResult] early-return when
+    //     handed the same TranslationResult INSTANCE they last
+    //     consumed. Skips the lookup pipeline restart. Identity, not
+    //     equality, is intentional: a fresh capture of the same source
+    //     text under a different backend or dictionary should still
+    //     re-trigger lookups. The contract is "fresh capture =
+    //     new instance"; CaptureService honours this by constructing
+    //     a new TranslationResult per cycle.
+    //
+    //   Layer 2 — StateFlow equality conflation.
+    //     [_result] is a MutableStateFlow, which by contract drops
+    //     value assignments equal (`==`) to the current value. With
+    //     ResultState.Ready and TranslationResult both being data
+    //     classes, a content-equal emission produces no observable
+    //     change to the StateFlow's value. This catches what Layer 1
+    //     misses (e.g. a `.copy()` round-trip with identical content)
+    //     and prevents UI flicker — the lookup may re-run on a Layer 1
+    //     miss, but the fragment doesn't re-render.
+    //
+    // Two trackers, not one. Service-emitted and locally-emitted
+    // results have separate dedup state because they participate in
+    // different replay scenarios:
+    //
+    //   - lastSeenResult tracks *anything* shown. Catches any duplicate
+    //     `displayResult` call (e.g. rotation mid-Ready).
+    //
+    //   - lastSeenServiceResult tracks only what the SERVICE emitted
+    //     (via [displayServiceResult]). A local update — drag-sentence
+    //     calling [displayResult] directly — must NOT advance this
+    //     tracker, or the next STOP→START reattach to the service's
+    //     panel StateFlow would re-deliver the prior service result
+    //     and clobber the local one. This split is the architectural
+    //     fix for the drag-sentence-after-live-mode bug; the test
+    //     `local displayResult does not poison service-replay dedup`
+    //     pins it.
+    //
+    // See CaptureSession.kt for the surrounding "two channels" model
+    // and CaptureService.attachCancellationTerminal for the cancellation
+    // story.
+
+    /** See "Dedup architecture" above. Last result instance that was
+     *  passed to [displayResult] from any source. */
+    private var lastSeenResult: TranslationResult? = null
+
+    /** See "Dedup architecture" above. Last result the service emitted
+     *  via [displayServiceResult]. Advanced ONLY from that entry point;
+     *  a [displayResult] call from local code (drag-sentence, edit
+     *  overlay) must not touch this. */
+    private var lastSeenServiceResult: TranslationResult? = null
+
+    /** Display a completed translation result from any source. Used
+     *  by both the service collector (via [displayServiceResult]) and
+     *  by local code paths that build a result on the activity's own.
+     *  No-op if [result] is the same instance already shown — see
+     *  "Dedup architecture" above. */
+    fun displayResult(
+        result: TranslationResult,
+        appCtx: Context,
+        onScreenBoxes: OnScreenBoxes? = null,
+    ) {
+        if (result === lastSeenResult) return
+        lastSeenResult = result
+        // If a Translating placeholder for this same source text is on screen,
+        // it already started the identical lookup this capture cycle
+        // (showTranslatingPlaceholder → displayResult, one capture). Promote to
+        // Ready but DON'T restart the pipeline: re-running cancels the in-flight
+        // analysis or rows job and flashes the word list back to Loading
+        // (definitions show, vanish, reappear; the tap spans drop with them). A
+        // refined/changed source text, or a path with no placeholder (live
+        // mode, cached drag result), still re-runs lookups.
+        val sameTextPlaceholder =
+            (_result.value as? ResultState.Translating)?.originalText == result.originalText
+        // Only skip if that placeholder lookup actually covers this text,
+        // whichever tier it has reached (analysis in flight, Analyzed with
+        // the rows never requested, rows in flight, Settled). A FAILED
+        // lookup of either tier is off the record, so it falls through and
+        // re-runs — otherwise a transient failure would leave the word list
+        // (and, for an analysis failure, the tap spans) empty and the cache
+        // unwritten for an otherwise-successful translation.
+        val placeholderLookupCoversText = lookups.covers(result.originalText)
+        _result.value = ResultState.Ready(result, onScreenBoxes)
+        if (!(sameTextPlaceholder && placeholderLookupCoversText)) {
+            startWordLookups(result.originalText, appCtx)
+        }
+        // The translation just landed: cache it now (if non-blank). If the
+        // (skipped) placeholder lookup's rows have already settled, this is
+        // the second half — write the full cache. If they haven't, the rows'
+        // own settle adds the words (if they are ever requested). Either
+        // order works.
+        writeLastSentenceCache()
+    }
+
+    /** Display a result that came from the service's panel state.
+     *  Distinct from [displayResult] because it advances
+     *  [lastSeenServiceResult] separately from [lastSeenResult] —
+     *  this is what keeps a STOP→START reattach to the panel
+     *  StateFlow from replaying a stale service result on top of
+     *  a local update. See "Dedup architecture" above. */
+    fun displayServiceResult(result: TranslationResult, appCtx: Context) {
+        if (result === lastSeenServiceResult) return
+        lastSeenServiceResult = result
+        displayResult(result, appCtx)
+    }
+
+    /** Show a status message. Cancels any in-flight lookup. A non-null
+     *  [ocrProvenance] (+ [screenshotPath]) marks the "no text detected" status so
+     *  the surface shows a tappable OCR-switch gear inline that can re-OCR that exact
+     *  capture; both null for every other status. */
+    fun showStatus(
+        message: String,
+        showHint: Boolean = false,
+        ocrProvenance: OcrProvenance? = null,
+        screenshotPath: String? = null,
+    ) {
+        resetWordLookups()
+        _result.value = ResultState.Status(message, showHint, ocrProvenance, screenshotPath)
+    }
+
+    /** Show an error. Fragment formats with the status_error string
+     *  resource. Cancels any in-flight lookup. */
+    fun showError(message: String) {
+        resetWordLookups()
+        _result.value = ResultState.Error(message)
+    }
+
+    /** Leaving the results: both tiers' jobs cancelled, nothing on record
+     *  (so the next result for any text runs its own lookup), state Idle. */
+    private fun resetWordLookups() = lookups.reset()
+
+    /** Patch the current Status's [showHint] flag. No-op if not
+     *  currently in Status. */
+    fun setStatusHintVisibility(visible: Boolean) {
+        val cur = _result.value as? ResultState.Status ?: return
+        _result.value = cur.copy(showHint = visible)
+    }
+
+    /** Show "translating..." placeholder for drag-sentence flows.
+     *  Triggers word lookups against the original text in parallel
+     *  with the host's translation request. */
+    fun showTranslatingPlaceholder(
+        originalText: String,
+        segments: List<TextSegment>,
+        appCtx: Context,
+        ocrProvenance: com.playtranslate.model.OcrProvenance? = null,
+        onScreenBoxes: OnScreenBoxes? = null,
+    ) {
+        _result.value = ResultState.Translating(originalText, segments, ocrProvenance, onScreenBoxes)
+        startWordLookups(originalText, appCtx)
+    }
+
+    /** A box fill landing on the current Translating placeholder: swap in
+     *  [onScreenBoxes], the same capture's boxes with more of them translated.
+     *  Unlike [showTranslatingPlaceholder] it never restarts word lookups: the
+     *  source text is unchanged, and a restart would flash the word list. No-op
+     *  in any other state, since only a placeholder still has boxes to fill. */
+    fun applyTranslatingBoxes(onScreenBoxes: OnScreenBoxes?) {
+        val cur = _result.value as? ResultState.Translating ?: return
+        _result.value = cur.copy(onScreenBoxes = onScreenBoxes)
+    }
+
+    /** Edit-overlay commit: replace original text on the current
+     *  Ready/Translating result, reset translation, re-run lookups.
+     *  No-op for non-result states.
+     *
+     *  Regenerates [segments] from [newText] via the shared [TextSegments]
+     *  helper so the fragment's [tvOriginal.setSegments] renders
+     *  the edited string. Without this, the OCR-derived segments from
+     *  before the edit stay on screen even though originalText,
+     *  translation, and lookups all shift to the new value. */
+    fun updateOriginalText(newText: String, appCtx: Context) {
+        val newSegments = TextSegments.ofText(newText)
+        when (val cur = _result.value) {
+            is ResultState.Ready -> {
+                _result.value = ResultState.Ready(
+                    cur.result.copy(
+                        originalText = newText,
+                        translatedText = "",
+                        segments = newSegments,
+                        // Edited source is no longer the OCR output — drop provenance
+                        // so the "Scanned by …" row + gear hide and re-OCR (which would
+                        // discard the edit) is disabled.
+                        ocrProvenance = null,
+                        // The edit's own re-translate lands via updateTranslation — a
+                        // surviving pending would let a later reveal clobber it with
+                        // the OLD source's translation.
+                        pendingTranslation = null,
+                    )
+                )
+            }
+            is ResultState.Translating -> {
+                _result.value = ResultState.Translating(newText, newSegments)
+            }
+            else -> return
+        }
+        startWordLookups(newText, appCtx)
+    }
+
+    /** Update the translation text on the current Ready result.
+     *  Promotes Translating → Ready when the translation lands; the
+     *  caller-supplied [translated] becomes the result's translation.
+     *  [backendDisplayName] replaces the backend identity so a re-translate
+     *  via a different backend doesn't leave the previous "Translated by …"
+     *  label glued to the new text. Defaults to null so error-path callers
+     *  ("" / "—") naturally clear the stale label that no longer matches. */
+    fun updateTranslation(translated: String, backendDisplayName: String? = null, appCtx: Context) {
+        when (val cur = _result.value) {
+            is ResultState.Ready -> {
+                _result.value = ResultState.Ready(
+                    cur.result.copy(
+                        translatedText = translated,
+                        backendDisplayName = backendDisplayName,
+                        // A caller-supplied translation supersedes a deferred one.
+                        pendingTranslation = null,
+                    )
+                )
+            }
+            is ResultState.Translating -> {
+                _result.value = ResultState.Ready(
+                    TranslationResult(
+                        originalText = cur.originalText,
+                        segments = cur.segments,
+                        translatedText = translated,
+                        timestamp = "",
+                        screenshotPath = null,
+                        note = null,
+                        backendDisplayName = backendDisplayName,
+                        langContext = Prefs(appCtx).langContext(),
+                    )
+                )
+            }
+            else -> { /* No-op for Idle/Status/Error */ }
+        }
+        // Translation (or a re-translate) just landed on a Ready result — refresh
+        // the cache so its translation/backend match, pairing with the already
+        // settled lookup if there is one. No-op while still pending or non-Ready.
+        writeLastSentenceCache()
+    }
+
+    /** Deferred-translation completion landing on the current Ready result:
+     *  patch translation + note + backend, clear the pending, and swap in the
+     *  freshly filled [onScreenBoxes] (null keeps the existing ones). Unlike
+     *  [updateTranslation] it carries the note and preserves the boxes; unlike
+     *  [displayResult] it never restarts word lookups — the source text is
+     *  unchanged, and a restart would flash the settled word list.
+     *
+     *  [expected] is the pending the async completion was LAUNCHED for, and
+     *  the guard is identity against it — not "some pending exists". A newer
+     *  deferred result (recapture, fresh lookup) carries a different pending;
+     *  a stale completion landing on it would show translation A for source B
+     *  and burn B's pending so B never completes. */
+    fun applyDeferredTranslation(
+        expected: PendingTranslation,
+        translated: String,
+        note: String?,
+        backendDisplayName: String?,
+        onScreenBoxes: OnScreenBoxes? = null,
+    ) {
+        val cur = _result.value as? ResultState.Ready ?: return
+        if (cur.result.pendingTranslation != expected) return
+        _result.value = ResultState.Ready(
+            cur.result.copy(
+                translatedText = translated,
+                note = note,
+                backendDisplayName = backendDisplayName,
+                pendingTranslation = null,
+            ),
+            onScreenBoxes ?: cur.onScreenBoxes,
+        )
+        writeLastSentenceCache()
+    }
+
+    /**
+     * Write [LastSentenceCache] from the Ready result, by the pipeline's
+     * pairing rule ([WordLookupPipeline.writeSentenceCache]): the
+     * translation half as soon as a non-blank translation is Ready, the
+     * words half once the rows of the same text have settled.
+     *
+     * Called from both the rows-settle path ([WordLookupPipeline.onRowsSettled])
+     * and the Ready transitions, so the two land in either order: rows that
+     * outrun the translation write nothing until the Ready transition (no
+     * Ready, no write, so the cache never holds a null
+     * sentence/translation). A blank translation (a deferred result, or an
+     * error-path updateTranslation("")) never writes either half; the
+     * eventual real translation re-triggers this write.
+     */
+    private fun writeLastSentenceCache() {
+        val ready = (_result.value as? ResultState.Ready)?.result ?: return
+        lookups.writeSentenceCache(ready.originalText, ready.translatedText, ready.backendDisplayName)
+    }
+
+    /** Run the analysis tier for [text] ([WordLookupPipeline.start]):
+     *  [wordLookups] goes Loading, then Analyzed; the rows follow only
+     *  through [requestWordRows]. */
+    fun startWordLookups(text: String, appCtx: Context) = lookups.start(text, appCtx)
+
+    /** Build the rows of the current analysis
+     *  ([WordLookupPipeline.requestRows]). Called by the Words card whenever
+     *  it is visible and may need rows ([WordRowsBinder.onRowsWanted]);
+     *  idempotent. On settle the sentence cache is written
+     *  ([writeLastSentenceCache]). */
+    fun requestWordRows(appCtx: Context) = lookups.requestRows(appCtx)
+
+    /**
+     * The sentence context an embedded word surface hands its Anki card:
+     * every text field reads the VM first and [fallback] second, so a host
+     * whose result hasn't settled yet (the results activity before its
+     * pipeline lands, the lookup page before its Sentence tab was ever
+     * opened, a result whose hidden Words card never requested its rows)
+     * still supplies the launch-time sentence. The settled rows are
+     * snapshotted ONCE so the legacy map, the surfaces and the enrichment
+     * come from the same emission (a second read could straddle a fresh
+     * emission, and the process-global cache rotates under live mode). A
+     * fallback has no surfaces: null lets the one-tap helper await the
+     * per-sentence cache, which is atomic. The pending rides the VM result
+     * only: it is meaningful solely beside its own result's text.
+     *
+     * The words' explanations are [fallback]'s (this model holds none: a
+     * row's answer lives with its row, and is put into the context where
+     * the row is opened), and they stand only beside the text they were
+     * asked about ([explanationsAbout]): while the result's text is still
+     * [fallback]'s they ride along, and once it is another, as after an
+     * edit of the sentence, the context carries none.
+     */
+    fun sentenceContext(fallback: SentenceContext?): SentenceContext {
+        val ready = _result.value as? ResultState.Ready
+        val settledRows = (lookups.state.value as? WordLookupsState.Settled)?.rows
+        val original = ready?.result?.originalText ?: fallback?.original
+        return SentenceContext(
+            original = original,
+            translation = ready?.result?.translatedText ?: fallback?.translation,
+            wordResults = settledRows?.toLegacyMap() ?: fallback?.wordResults,
+            surfaceForms = settledRows?.toSurfaceMap() ?: fallback?.surfaceForms,
+            wordEnrichment = settledRows?.toEnrichmentMap() ?: fallback?.wordEnrichment,
+            pending = ready?.result?.pendingTranslation,
+            explanations = fallback?.explanationsAbout(original).orEmpty(),
+        )
+    }
+}
+
+/**
+ * Paintable "show on screen" boxes for the current in-app result (the
+ * dual-screen counterpart of the capture panel's header toggle): the one-shot
+ * pipeline's overlay geometry plus the display the capture came from. Carried
+ * ONLY by the one-shot capture collector's Translating (skeletons, filling in as
+ * the translations arrive) / Ready (translated) writes. Every other write path
+ * defaults it to null, which is what makes "any new content dismisses the
+ * on-screen boxes" enforceable in the fragment's single render funnel instead
+ * of at N call sites.
+ */
+data class OnScreenBoxes(
+    val data: OneShotOverlayData,
+    val displayId: Int,
+    /** The language the capture was read in, for the presentations built
+     *  from its groups (the reading hint, the word lookups); null falls
+     *  back to the source language setting. */
+    val sourceLangId: com.playtranslate.language.SourceLangId? = null,
+    /** The frame the capture read, for Definitions' cards (the sentence
+     *  screenshot): its saved path and capture time, null and 0 until the
+     *  result lands. */
+    val screenshotPath: String? = null,
+    val capturedAtMs: Long = 0L,
+    /** The overlay mode this capture was asked for ahead of the remembered
+     *  one (tap-to-lookup is a capture in Definitions); null reads the
+     *  capture surface's setting. Never written to the setting. */
+    val modeOverride: com.playtranslate.OverlayMode? = null,
+    /** The capture these boxes are from, as it started on the game display
+     *  ([com.playtranslate.OverlayUiController.beginAppCapture]): put up as
+     *  it lands, they go up only while the game screen is still its own.
+     *  Null for boxes the user asks to see (the page's row). */
+    val captureId: Long? = null,
+)
+
+sealed class ResultState {
+    object Idle : ResultState()
+    /** Waiting / informational message; [showHint] toggles the
+     *  "press X to start" hint line under the message. */
+    data class Status(
+        val message: String,
+        val showHint: Boolean = false,
+        /** OCR provenance + screenshot for the "no text detected" status, so the
+         *  inline OCR-switch gear can re-OCR THAT exact capture. Both null for
+         *  idle/error/searching/etc. (no gear). */
+        val ocrProvenance: OcrProvenance? = null,
+        val screenshotPath: String? = null,
+    ) : ResultState()
+    /** Drag-sentence placeholder: original text is set, translation
+     *  is in flight ("Translating..." in the UI). */
+    data class Translating(
+        val originalText: String,
+        val segments: List<TextSegment>,
+        /** OCR provenance when this placeholder came from a capture (drives the
+         *  source "Scanned by …" row during translation); null for drag/sentence/edit. */
+        val ocrProvenance: com.playtranslate.model.OcrProvenance? = null,
+        /** The capture's boxes for the dual-screen "show on screen" toggle (see
+         *  [OnScreenBoxes]): skeletons, filling in as the translations arrive
+         *  ([TranslationResultViewModel.applyTranslatingBoxes]). Null for
+         *  drag/sentence/edit placeholders. */
+        val onScreenBoxes: OnScreenBoxes? = null,
+    ) : ResultState()
+    data class Ready(
+        val result: TranslationResult,
+        /** Translated boxes for the dual-screen "show on screen" toggle — see
+         *  [OnScreenBoxes]. Null for every non-one-shot-capture source. */
+        val onScreenBoxes: OnScreenBoxes? = null,
+    ) : ResultState()
+    /** Translation/capture error; fragment formats with
+     *  [com.playtranslate.R.string.status_error]. */
+    data class Error(val message: String) : ResultState()
+}
+
+
+/**
+ * The result's word lookup, in two tiers with different costs and different
+ * readers:
+ *  - the ANALYSIS (tokenize + phrase detection, one engine call cached per
+ *    text) runs for every result: the source text's tap spans need only it,
+ *    and the tap-a-word lens resolves its own word on tap;
+ *  - the dictionary ROWS (a parallel dictionary lookup per unique word, the
+ *    machine-translation fallback tiers for a non-English target, the
+ *    styled payload, then one Words cell per row with its deck query) are
+ *    built only when the Words card asks for them
+ *    ([TranslationResultViewModel.requestWordRows]). The card can be hidden
+ *    (the user's eye, or live mode's auto-hide), and in dual-screen live mode
+ *    a result lands on every panel emission, so paying the rows for a list
+ *    nobody reads was most of the lookup's cost.
+ *
+ * One text moves Loading → [Analyzed] → (only if the rows are requested)
+ * [Settled]. An analysis failure goes straight to an empty [Settled].
+ */
+sealed class WordLookupsState {
+    object Idle : WordLookupsState()
+    object Loading : WordLookupsState()
+    /** The analysis settled and the rows were NOT built: the tap spans are
+     *  derivable ([tokenSpans] + [phrases]; each span's reading is the
+     *  token's own lookup hint ([TokenSpan.reading]), which the lens passes
+     *  to its resolve as the reading hint; the rows' resolved readings
+     *  replace it when [Settled] lands), the Words card is not. Same field
+     *  semantics as the matching [Settled] fields. */
+    data class Analyzed(
+        val tokenSpans: List<TokenSpan>,
+        val annotation: com.playtranslate.language.SentenceAnnotation,
+        val phrases: List<com.playtranslate.language.PhraseOccurrence>,
+    ) : WordLookupsState()
+    /** Final lookup results. [tokenSpans] carries the tokenizer's
+     *  per-occurrence info so the fragment can compute character
+     *  ranges in the displayed text (which may have OCR newlines
+     *  inserted) for furigana + word-tap popup positioning.
+     *  [lookupToReading] maps both the lookupForm and the surface
+     *  form to the resolved reading, so conjugated forms get furigana
+     *  too. */
+    data class Settled(
+        val rows: List<RowState>,
+        val tokenSpans: List<TokenSpan>,
+        val lookupToReading: Map<String, String>,
+        /** The analysis the rows were projected from; rides into hand-built
+         *  one-tap WordsPayloads so isTrustedFor can prove freshness. */
+        val annotation: com.playtranslate.language.SentenceAnnotation? = null,
+        /** Detected multi-word expression occurrences — the fragment's span
+         *  computation anchors single-letter phrase members' tap targets on
+         *  these ([SourceWordLookup.computeTapSpans]). */
+        val phrases: List<com.playtranslate.language.PhraseOccurrence> = emptyList(),
+        /** The dictionary store's language key the rows were looked up
+         *  under ([com.playtranslate.language.SourceLangId.yomitanConsumingLang]
+         *  of the analysis's own snapshot). The Words card's document fetches
+         *  each row's structured content with it, later and in pieces, so it
+         *  must be the lookup's language and never a fresh read of the
+         *  settings. Blank only on the empty results of a failed lookup. */
+        val definitionLang: String = "",
+        /** The text the rows are the words of, and the pair it was analysed
+         *  under (the analysis's own snapshot, like [definitionLang]), as a
+         *  question about one of those words takes them
+         *  ([com.playtranslate.ask.WordInSentence]): what gives a Words row
+         *  its explain button. It travels with the rows it belongs to, so a
+         *  row can never be asked about under another text. Null where no
+         *  rows settled (a failed lookup), and then no row has the button. */
+        val sentence: com.playtranslate.ask.AskSentence? = null,
+    ) : WordLookupsState()
+}
+
+/** Per-row data the fragment needs to render a word row + the
+ *  embedded sheet needs to construct an Anki card. */
+data class RowState(
+    val displayWord: String,
+    val reading: String,
+    /** Flattened, newline-joined definition string. Kept for the Anki field
+     *  builders consumed via [toLegacyMap]. */
+    val meaning: String,
+    /** Structured senses (pos + gloss) driving the word cell's numbered,
+     *  POS-grouped definitions. */
+    val senses: List<SenseDisplay>,
+    /** The imported Yomitan groups BEHIND this row's flattened imported
+     *  senses — the structured form the styled (WebView) renderer needs.
+     *  Carried so a host that renders styled cells doesn't have to re-look-up
+     *  the entry; the flat hosts ignore it. In-process only, like
+     *  [WordDefinitionData.importedGroups]. */
+    val importedGroups: List<ImportedSenseGroup> = emptyList(),
+    val freqScore: Int,
+    val isCommon: Boolean,
+    val surface: String,
+    /** Promoted part-of-speech for the word's Anki card (first sense's POS),
+     *  so the cell can build the card without re-resolving the entry. */
+    val ankiPos: String = "",
+    /** Pitch-accent downstep variants for the displayed headword (empty
+     *  when unknown); rides from HeadwordDisplay into the word cell. */
+    val pitch: List<Int> = emptyList(),
+    /** Per-dictionary frequency chips for the displayed headword; rides
+     *  from HeadwordDisplay into the word cell like [pitch]. */
+    val frequencies: List<FrequencyTag> = emptyList(),
+    /** Distinct inflected forms this lemma appeared as in the source, each with
+     *  its conjugation tags (e.g. 食べたい·Desiderative, 食べられない·Passive/Neg).
+     *  Empty for uninflected words / non-Japanese sources. */
+    val inflectedForms: List<InflectedForm> = emptyList(),
+    /** Every reading of the entry in common-use order — the SAME source the word
+     *  detail page uses ([DictionaryEntry.orderedReadingRows]) — with the
+     *  occurrence reading flagged bolded. The cell lists these below the title
+     *  when there's more than one or the inline reading won't fit. Empty for
+     *  non-JA / no-reading rows. */
+    val readingRows: List<ReadingRow> = emptyList(),
+    /** The dictionary form the row was resolved under, which the word-detail
+     *  page must resolve with ([WordDetailBinder.Args.lookupForm]). It can
+     *  differ from [displayWord]: a usually-kana entry resolved under its
+     *  kanji form and seen in kana displays as the kana. The default is for
+     *  rows built without one. */
+    val lookupForm: String = displayWord,
+    /** The reading that narrowed [lookupForm]'s lookup, null when none
+     *  ([WordDetailBinder.Args.lookupReading]). */
+    val lookupReading: String? = null,
+)
+
+/** Convert the row list into the legacy `Map<String, Triple<...>>`
+ *  shape that [WordDetailBottomSheet] / [WordAnkiReviewSheet]
+ *  consume for Anki field building. */
+fun List<RowState>.toLegacyMap(): Map<String, Triple<String, String, Int>> =
+    associate { it.displayWord to Triple(it.reading, it.meaning, it.freqScore) }
+
+/** A freshly rendered words list's order: visible words first, hidden words
+ *  after, each group in lookup order (stable sort). Applied only when a list
+ *  is rendered anew; a hide/show toggle re-stubs its cell in place and never
+ *  moves it. The same instance when nothing in the list is hidden. */
+fun List<RowState>.hiddenLast(hidden: Set<String>): List<RowState> =
+    if (hidden.isEmpty() || none { it.displayWord in hidden }) this
+    else sortedBy { it.displayWord in hidden }
+
+/** Surface-form map paired with [toLegacyMap]. Both extensions read
+ *  the same in-memory [RowState] list, so callers that snapshot both
+ *  in a single pass keep word→surface alignment intact — important
+ *  for one-tap card sends, which can't rely on reading
+ *  `LastSentenceCache.surfaceForms` separately (the cache is
+ *  process-global and may have rotated to a different sentence by
+ *  the time a downstream consumer reads it). */
+fun List<RowState>.toSurfaceMap(): Map<String, String> =
+    associate { it.displayWord to it.surface }
+
+/** Pitch + per-dictionary frequencies map paired with [toLegacyMap] /
+ *  [toSurfaceMap] (same atomic-snapshot rationale — read together, not via the
+ *  process-global cache, to keep word→data aligned). Feeds the sentence-card
+ *  pitch/frequency Anki fields via [WordEnrichment]. */
+fun List<RowState>.toEnrichmentMap(): Map<String, WordEnrichment> =
+    associate {
+        it.displayWord to WordEnrichment(it.pitch, it.frequencies, it.isCommon, it.senses)
+    }
+
+/** The sole resolved word when [sourceText] is exactly one token
+ *  (whitespace-insensitive), else null. Drives the single-word Anki
+ *  shortcut: a one-word result opens the word card directly instead of
+ *  the sentence sheet. Compares the row's [RowState.surface] (the form
+ *  as it appeared in the text) rather than [RowState.displayWord], so a
+ *  lone inflected word (surface 使わない / lemma 使う) still matches while a
+ *  word + particle (猫 in 猫は) or a repeat (猫 in 猫猫) does not. */
+fun WordLookupsState.Settled.singleWordRow(sourceText: String): RowState? {
+    val row = rows.singleOrNull() ?: return null
+    if (row.surface.isBlank()) return null
+    fun bare(s: String) = s.filterNot(Char::isWhitespace)
+    return row.takeIf { bare(it.surface) == bare(sourceText) }
+}

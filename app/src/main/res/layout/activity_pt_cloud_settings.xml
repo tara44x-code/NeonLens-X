@@ -1,0 +1,954 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PlayTranslate Cloud page (Settings → Configure, debug builds only). One
+     feature list in every state, under its FEATURES header: signed out it
+     describes the service, signed in its rows are the two switches, and when
+     the account lapses the Join card under it points back at them. Top to
+     bottom: the terms banner while the current terms are not accepted; signed
+     out, the hero while the sign-in form shows, then the headline and the
+     intro paragraph; the closed card while the
+     service has closed, in the place of the sign-in card or of the ACCOUNT
+     group; the sign-in card while signed out (the email form, then the code);
+     the ACCOUNT group while signed in; the FEATURES group; signed out, the
+     privacy footnote under it; with the terms owed, the paused line; once the
+     trial ended or no membership is active, the Join card; the service
+     status; on the trial, the AFTER THE TRIAL group with its Join card.
+     PtCloudSettingsActivity.render sets every visibility and every dynamic
+     text. The service's address is fixed in the client, with no field here.
+     On the activity_translation_history.xml template. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="?attr/ptSurface"
+        app:navigationIcon="@drawable/ic_arrow_back"
+        app:navigationIconTint="?attr/ptText"
+        app:title="@string/pt_cloud_display_name_alpha"
+        app:titleTextColor="?attr/ptText" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="?attr/ptDivider" />
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:paddingHorizontal="@dimen/pt_section_h_padding"
+        android:paddingBottom="24dp"
+        android:clipToPadding="false">
+
+        <LinearLayout
+            android:id="@+id/columnCloud"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- Signed in, while the server says the current terms are not
+                 accepted: the page's one call to action, above everything,
+                 outlined in the warning colour. Show terms opens them; its
+                 spinner takes its label's place while a terms call runs. The
+                 line names the service, so the page sets it. -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardCloudTerms"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:visibility="gone"
+                app:cardBackgroundColor="?attr/ptCard"
+                app:cardCornerRadius="@dimen/pt_radius"
+                app:cardElevation="0dp"
+                app:strokeColor="?attr/ptWarning"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:baselineAligned="false"
+                    android:paddingHorizontal="@dimen/pt_row_h_padding"
+                    android:paddingVertical="@dimen/pt_row_v_padding">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/tvTermsRequired"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/pt_cloud_terms_required"
+                            android:textColor="?attr/ptWarning"
+                            style="@style/Text.PT.RowTitle" />
+
+                        <TextView
+                            android:id="@+id/tvTermsPending"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            style="@style/Text.PT.RowSubtitle" />
+                    </LinearLayout>
+
+                    <FrameLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="12dp">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnCloudShowTerms"
+                            android:layout_width="wrap_content"
+                            android:layout_height="match_parent"
+                            android:minWidth="0dp"
+                            android:minHeight="0dp"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:paddingHorizontal="16dp"
+                            android:text="@string/pt_cloud_show_terms"
+                            android:textAllCaps="false"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            app:cornerRadius="12dp" />
+
+                        <ProgressBar
+                            android:id="@+id/progressCloudShowTerms"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:indeterminate="true"
+                            android:visibility="gone"
+                            android:indeterminateTint="?attr/colorOnPrimary" />
+                    </FrameLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- A failed terms call's notice, signed in (a fetch that could
+                 not load them, an acceptance not recorded), under the
+                 banner. -->
+            <TextView
+                android:id="@+id/tvTermsNotice"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:paddingHorizontal="4dp"
+                android:textColor="?attr/ptWarning"
+                android:visibility="gone"
+                style="@style/Text.PT.RowSubtitle" />
+
+            <!-- Signed out, while the sign-in form shows (not while a code is
+                 on its way, nor while closed): the hero, the service's logo
+                 over two lanes of traffic that flow into the cloud on the
+                 outer lanes and out of it on the middle one. Each lanes view
+                 runs from its outer edge to the row's centre, under the
+                 cloud, so the traffic shows through the PNG's transparent
+                 parts and goes behind the cloud itself; the right one is the
+                 left one mirrored. Left to right in every locale. The cloud
+                 at 156dp is 87dp tall, so the row is, the lanes' 84dp centred
+                 on it (the cloud reaches the PNG's top and bottom edges, so
+                 an 84dp row would cut its outline). 20dp under the toolbar,
+                 and 14dp over the headline: its own 26dp less the 12dp this
+                 row takes back, so with the row gone the headline keeps its
+                 26dp. -->
+            <FrameLayout
+                android:id="@+id/rowCloudHero"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="-12dp"
+                android:layoutDirection="ltr"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="84dp"
+                    android:layout_gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.playtranslate.ui.TrafficLanesView
+                        android:id="@+id/viewTrafficLeft"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1" />
+
+                    <com.playtranslate.ui.TrafficLanesView
+                        android:id="@+id/viewTrafficRight"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_weight="1"
+                        android:scaleX="-1" />
+                </LinearLayout>
+
+                <ImageView
+                    android:id="@+id/imgCloudHero"
+                    android:layout_width="@dimen/pt_cloud_hero_width"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:adjustViewBounds="true"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/pt_cloud_hero"
+                    android:contentDescription="@string/pt_cloud_display_name" />
+            </FrameLayout>
+
+            <!-- Signed out: what the service is, inset as the group headers
+                 are. The paragraph names the service, so the page sets it.
+                 The top margin is the gap under the toolbar, and under the
+                 hero with the hero's negative margin. -->
+            <TextView
+                android:id="@+id/tvCloudHeadline"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="26dp"
+                android:paddingHorizontal="4dp"
+                android:text="@string/pt_cloud_headline"
+                android:textColor="?attr/ptText"
+                android:textSize="26sp"
+                android:textStyle="bold"
+                android:letterSpacing="-0.02"
+                android:lineSpacingMultiplier="1.15" />
+
+            <TextView
+                android:id="@+id/tvCloudIntro"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:paddingHorizontal="4dp"
+                android:textColor="?attr/ptTextMuted"
+                android:textSize="14sp"
+                android:lineSpacingMultiplier="1.45" />
+
+            <!-- The service has closed: its title and the server's message
+                 verbatim, in the place of the sign-in card signed out and of
+                 the ACCOUNT group signed in. -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardCloudClosed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:visibility="gone"
+                app:cardBackgroundColor="?attr/ptCard"
+                app:cardCornerRadius="@dimen/pt_radius"
+                app:cardElevation="0dp"
+                app:strokeColor="?attr/ptDivider"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="@dimen/pt_row_h_padding"
+                    android:paddingVertical="@dimen/pt_row_v_padding">
+
+                    <TextView
+                        android:id="@+id/tvCloudClosedTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        style="@style/Text.PT.RowTitle" />
+
+                    <TextView
+                        android:id="@+id/tvCloudClosedMessage"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        style="@style/Text.PT.RowSubtitle" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Signed out: sign-in, with no header (the email form, then the
+                 code while one is on its way). -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardCloudSignIn"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                app:cardBackgroundColor="?attr/ptCard"
+                app:cardCornerRadius="@dimen/pt_radius"
+                app:cardElevation="0dp"
+                app:strokeColor="?attr/ptDivider"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <!-- The email field, the agreement box and Try for Free,
+                         which sends the code. Its children may draw into its
+                         padding: the agreement row reaches 12dp into it. -->
+                    <LinearLayout
+                        android:id="@+id/groupSignedOut"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingTop="18dp"
+                        android:paddingHorizontal="@dimen/pt_row_h_padding"
+                        android:paddingBottom="16dp"
+                        android:clipToPadding="false"
+                        android:visibility="gone">
+
+                        <!-- Its margin below, so the card's top inset is the
+                             same whether it shows or not. -->
+                        <TextView
+                            android:id="@+id/tvKeyRefused"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginBottom="14dp"
+                            android:text="@string/pt_cloud_key_no_longer_accepted"
+                            android:textColor="?attr/ptWarning"
+                            android:visibility="gone"
+                            style="@style/Text.PT.RowSubtitle" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:labelFor="@+id/etCloudEmail"
+                            android:text="@string/pt_cloud_email_label"
+                            style="@style/Text.PT.FieldLabel" />
+
+                        <!-- Autofilled as an email address, unlike the page's
+                             other field. -->
+                        <EditText
+                            android:id="@+id/etCloudEmail"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:hint="@string/pt_cloud_email_hint"
+                            android:textSize="13sp"
+                            android:singleLine="true"
+                            android:inputType="textEmailAddress"
+                            android:autofillHints="emailAddress"
+                            android:importantForAutofill="yes"
+                            style="@style/Widget.PlayTranslate.TextField" />
+
+                        <!-- The agreement: the box is the agreement itself, the
+                             sentence's last words a link that opens the terms
+                             page to read. The row toggles the box (a tap off
+                             the link falls through to it); the box lights in
+                             its error state when Try for Free is tapped with it
+                             unticked. The box is the page's own 20dp outlined
+                             square (checkbox_box, its tick checkbox_tick), its
+                             touch target the row: 48dp of content, and the
+                             gaps to the field above (6dp) and to Try for Free
+                             below (10dp) as its padding, so they take taps too
+                             with nothing moved; to the left it reaches 12dp
+                             into the form's padding (a negative margin its
+                             padding gives back), the box still flush with the
+                             field and its 6dp shake inside that padding, which
+                             the row does not clip to. The sentence fills the row's
+                             height, so the link takes a press anywhere above or
+                             below its words (LinkOnlyMovement). The sentence's
+                             text and its link are the page's; the sentence
+                             labels the box and shows a controller's focus by
+                             its background. -->
+                        <LinearLayout
+                            android:id="@+id/rowCloudAgree"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="-12dp"
+                            android:minHeight="64dp"
+                            android:paddingStart="12dp"
+                            android:paddingTop="6dp"
+                            android:paddingBottom="10dp"
+                            android:clipToPadding="false"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="false">
+
+                            <com.google.android.material.checkbox.MaterialCheckBox
+                                android:id="@+id/cbCloudAgree"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                app:buttonCompat="@drawable/checkbox_box"
+                                app:buttonTint="@color/checkbox_button"
+                                app:buttonIcon="@drawable/checkbox_tick"
+                                app:buttonIconTint="@color/checkbox_icon"
+                                app:errorAccessibilityLabel="@string/pt_cloud_agree_required" />
+
+                            <TextView
+                                android:id="@+id/tvCloudAgree"
+                                android:layout_width="0dp"
+                                android:layout_height="match_parent"
+                                android:layout_weight="1"
+                                android:layout_marginStart="12dp"
+                                android:gravity="center_vertical"
+                                android:labelFor="@id/cbCloudAgree"
+                                android:background="?attr/selectableItemBackground"
+                                android:textColor="?attr/ptText"
+                                android:textSize="13sp" />
+                        </LinearLayout>
+
+                        <!-- The LLM page's Save pattern: the spinner overlays
+                             the disabled button, its label hidden, while the
+                             request is in flight. 56dp tall and bold, as Start
+                             Free Trial and Join are. The button's label names
+                             the service, so the page sets it. -->
+                        <!-- No margin above: the 10dp gap is the agreement
+                             row's padding. -->
+                        <FrameLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="56dp">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnCloudSendCode"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:textAllCaps="false"
+                                android:textSize="15sp"
+                                android:textStyle="bold"
+                                app:cornerRadius="12dp" />
+
+                            <ProgressBar
+                                android:id="@+id/progressCloudSendCode"
+                                android:layout_width="24dp"
+                                android:layout_height="24dp"
+                                android:layout_gravity="center"
+                                android:indeterminate="true"
+                                android:visibility="gone"
+                                android:indeterminateTint="?attr/colorOnPrimary" />
+                        </FrameLayout>
+
+                        <!-- The lines under the button are centred, as the
+                             line under Join is. -->
+                        <TextView
+                            android:id="@+id/tvSignInNotice"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:gravity="center_horizontal"
+                            android:textColor="?attr/ptWarning"
+                            android:visibility="gone"
+                            style="@style/Text.PT.RowSubtitle" />
+
+                        <TextView
+                            android:id="@+id/tvSignInPrivacy"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:gravity="center_horizontal"
+                            android:text="@string/pt_cloud_privacy_signin"
+                            android:textColor="?attr/ptTextHint"
+                            android:textSize="12.5sp"
+                            style="@style/Text.PT.RowSubtitle" />
+                    </LinearLayout>
+
+                    <!-- Code sent: the code field and Start Free Trial, which
+                         the keyboard's Done also presses. -->
+                    <LinearLayout
+                        android:id="@+id/groupCodeSent"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingHorizontal="@dimen/pt_row_h_padding"
+                        android:paddingVertical="@dimen/pt_row_v_padding"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:id="@+id/tvCodeSentTo"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            style="@style/Text.PT.RowSubtitle" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="14dp"
+                            android:labelFor="@+id/etCloudCode"
+                            android:text="@string/pt_cloud_code_label"
+                            style="@style/Text.PT.FieldLabel" />
+
+                        <!-- Digits only, at most six: the page's filter keeps
+                             the digits of a pasted "482 913". -->
+                        <EditText
+                            android:id="@+id/etCloudCode"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:hint="@string/pt_cloud_code_hint"
+                            android:textSize="15sp"
+                            android:fontFamily="monospace"
+                            android:letterSpacing="0.2"
+                            android:singleLine="true"
+                            android:inputType="number"
+                            android:imeOptions="actionDone"
+                            android:importantForAutofill="no"
+                            style="@style/Widget.PlayTranslate.TextField" />
+
+                        <FrameLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="56dp"
+                            android:layout_marginTop="16dp">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnCloudSignIn"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:text="@string/pt_cloud_start_free_trial"
+                                android:textAllCaps="false"
+                                android:textSize="15sp"
+                                android:textStyle="bold"
+                                app:cornerRadius="12dp" />
+
+                            <ProgressBar
+                                android:id="@+id/progressCloudSignIn"
+                                android:layout_width="24dp"
+                                android:layout_height="24dp"
+                                android:layout_gravity="center"
+                                android:indeterminate="true"
+                                android:visibility="gone"
+                                android:indeterminateTint="?attr/colorOnPrimary" />
+                        </FrameLayout>
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnCloudSendNewCode"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/pt_cloud_send_new_code"
+                            android:textAllCaps="false"
+                            style="@style/Widget.Material3.Button.TextButton" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnCloudChangeEmail"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/pt_cloud_change_email"
+                            android:textAllCaps="false"
+                            style="@style/Widget.Material3.Button.TextButton" />
+
+                        <TextView
+                            android:id="@+id/tvCodeNotice"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:textColor="?attr/ptWarning"
+                            android:visibility="gone"
+                            style="@style/Text.PT.RowSubtitle" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Signed in: the account card's header (the card has no title
+                 of its own). -->
+            <include layout="@layout/settings_group_header"
+                android:id="@+id/headerCloudAccount"
+                android:visibility="gone" />
+
+            <!-- Signed in: the account's standing as the title (until when the
+                 trial or the membership runs, or since when it ended), its
+                 address under it, and the sign-out chip at the right. -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardCloudAccount"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                app:cardBackgroundColor="?attr/ptCard"
+                app:cardCornerRadius="@dimen/pt_radius"
+                app:cardElevation="0dp"
+                app:strokeColor="?attr/ptDivider"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:id="@+id/groupSignedIn"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="@dimen/pt_row_min_height"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:baselineAligned="false"
+                    android:paddingHorizontal="@dimen/pt_row_h_padding"
+                    android:paddingVertical="@dimen/pt_row_v_padding">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/tvAccountTitle"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            style="@style/Text.PT.RowTitle" />
+
+                        <TextView
+                            android:id="@+id/tvAccountSubtitle"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:singleLine="true"
+                            android:ellipsize="end"
+                            android:visibility="gone"
+                            style="@style/Text.PT.RowSubtitle" />
+
+                        <!-- In the address's place when the last check had no
+                             verdict. -->
+                        <TextView
+                            android:id="@+id/tvAccountUnchecked"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/pt_cloud_account_unchecked"
+                            android:textColor="?attr/ptWarning"
+                            android:visibility="gone"
+                            style="@style/Text.PT.RowSubtitle" />
+                    </LinearLayout>
+
+                    <!-- Sign out, confirmed in an OverlayAlert: the hub
+                         cell's icon chip with no text, its glyph in the
+                         least prominent text colour, so a rare action does
+                         not stand out, its description read as Sign out. -->
+                    <FrameLayout
+                        android:id="@+id/btnCloudSignOut"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:layout_marginStart="12dp"
+                        android:background="@drawable/bg_hub_chip"
+                        android:foreground="?attr/selectableItemBackground"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:contentDescription="@string/pt_cloud_sign_out">
+
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_logout"
+                            android:importantForAccessibility="no"
+                            app:tint="?attr/ptTextHint" />
+                    </FrameLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- The feature list, in every state. -->
+            <include layout="@layout/settings_group_header"
+                android:id="@+id/headerCloudFeatures" />
+
+            <!-- The two features, one per route: reading the screen (OCR) and
+                 translating. Signed out a description, with no switches;
+                 signed in each row's switch is its route's, independent, no
+                 master; disabled and off while the account is not admitted or
+                 the service is closed. -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardCloudFeatures"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardBackgroundColor="?attr/ptCard"
+                app:cardCornerRadius="@dimen/pt_radius"
+                app:cardElevation="0dp"
+                app:strokeColor="?attr/ptDivider"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <include layout="@layout/settings_row_feature"
+                        android:id="@+id/rowCloudOcr" />
+
+                    <include layout="@layout/settings_row_divider"
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginStart="52dp" />
+
+                    <include layout="@layout/settings_row_feature"
+                        android:id="@+id/rowCloudTranslate" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Signed out: what the server keeps of what it reads, under the
+                 features it describes, centred, the icon beside the text (a
+                 line that wraps is centred too). -->
+            <LinearLayout
+                android:id="@+id/rowCloudPrivacy"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:paddingHorizontal="4dp">
+
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:src="@drawable/ic_lock"
+                    android:importantForAccessibility="no"
+                    app:tint="?attr/ptTextHint" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:gravity="center_horizontal"
+                    android:text="@string/pt_cloud_privacy_features"
+                    android:textColor="?attr/ptTextMuted"
+                    android:textSize="12.5sp"
+                    android:lineSpacingMultiplier="1.35" />
+            </LinearLayout>
+
+            <!-- While the terms are owed: why the features above are
+                 greyed. -->
+            <TextView
+                android:id="@+id/tvFeaturesPaused"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:paddingHorizontal="4dp"
+                android:text="@string/pt_cloud_features_paused_terms"
+                android:textColor="?attr/ptTextHint"
+                android:textSize="12.5sp"
+                android:visibility="gone" />
+
+            <!-- Once the trial ended or no membership is active: Join, right
+                 under the features it turns back on, its line naming the
+                 address to pay with, and under a divider "Already joined?"
+                 with Check again as the sign-out chip's twin at the row's
+                 right end (the sync glyph, no text, described as Check
+                 again), whose spinner takes the glyph's place while the check
+                 runs. The title names the service, so the page sets it. -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardCloudJoinLapsed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:visibility="gone"
+                app:cardBackgroundColor="?attr/ptCard"
+                app:cardCornerRadius="@dimen/pt_radius"
+                app:cardElevation="0dp"
+                app:strokeColor="?attr/ptDivider"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:id="@+id/tvJoinTitleLapsed"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        style="@style/Text.PT.RowTitle" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="@string/pt_cloud_join_nudge_lapsed"
+                        style="@style/Text.PT.RowSubtitle" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnCloudJoinLapsed"
+                        android:layout_width="match_parent"
+                        android:layout_height="56dp"
+                        android:layout_marginTop="10dp"
+                        android:textAllCaps="false"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        app:cornerRadius="12dp" />
+
+                    <TextView
+                        android:id="@+id/tvJoinHintLapsed"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:gravity="center_horizontal"
+                        android:textColor="?attr/ptTextHint"
+                        android:textSize="12.5sp"
+                        style="@style/Text.PT.RowSubtitle" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginTop="14dp"
+                        android:background="?attr/ptDivider" />
+
+                    <LinearLayout
+                        android:id="@+id/rowCloudCheckAgain"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tvJoinPending"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/pt_cloud_join_pending"
+                            style="@style/Text.PT.RowSubtitle" />
+
+                        <FrameLayout
+                            android:id="@+id/btnCloudCheckAgain"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:layout_marginStart="12dp"
+                            android:background="@drawable/bg_hub_chip"
+                            android:foreground="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:contentDescription="@string/pt_cloud_check_again">
+
+                            <ImageView
+                                android:id="@+id/ivCloudCheckAgain"
+                                android:layout_width="22dp"
+                                android:layout_height="22dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_sync"
+                                android:importantForAccessibility="no"
+                                app:tint="?attr/ptTextHint" />
+
+                            <ProgressBar
+                                android:id="@+id/progressCloudCheckAgain"
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:layout_gravity="center"
+                                android:indeterminate="true"
+                                android:visibility="gone"
+                                android:indeterminateTint="?attr/ptTextHint" />
+                        </FrameLayout>
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Service status (GET /health), refreshed on resume and when a
+                 key is stored, with the cooldown line below it while one runs.
+                 Shown signed in while the account is served (on the trial, a
+                 member, no details) once a check has run, never while closed.
+                 Not tappable; no header, it reads under the features. -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardCloudStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:visibility="gone"
+                app:cardBackgroundColor="?attr/ptCard"
+                app:cardCornerRadius="@dimen/pt_radius"
+                app:cardElevation="0dp"
+                app:strokeColor="?attr/ptDivider"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="@dimen/pt_row_min_height"
+                    android:orientation="vertical"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="@dimen/pt_row_h_padding"
+                    android:paddingVertical="@dimen/pt_row_v_padding">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/pt_cloud_status_title"
+                            style="@style/Text.PT.RowTitle" />
+
+                        <!-- The accent while the service runs, the warning
+                             colour otherwise (the page tints it). -->
+                        <View
+                            android:id="@+id/viewCloudStatusDot"
+                            android:layout_width="7dp"
+                            android:layout_height="7dp"
+                            android:background="@drawable/bg_status_dot" />
+
+                        <TextView
+                            android:id="@+id/tvCloudStatus"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="@string/pt_cloud_status_unchecked"
+                            style="@style/Text.PT.RowValue" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tvCloudCooldown"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textColor="?attr/ptWarning"
+                        android:visibility="gone"
+                        style="@style/Text.PT.RowSubtitle" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- On the free trial: what keeps the service going after it.
+                 Join here is the outlined button (the trial still serves);
+                 the line above it names the service, so the page sets it, and
+                 the one under it, centred, names the address to pay with. -->
+            <include layout="@layout/settings_group_header"
+                android:id="@+id/headerCloudJoin"
+                android:visibility="gone" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardCloudJoinTrial"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                app:cardBackgroundColor="?attr/ptCard"
+                app:cardCornerRadius="@dimen/pt_radius"
+                app:cardElevation="0dp"
+                app:strokeColor="?attr/ptDivider"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:id="@+id/tvJoinNudgeTrial"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        style="@style/Text.PT.RowSubtitle" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnCloudJoinTrial"
+                        android:layout_width="match_parent"
+                        android:layout_height="56dp"
+                        android:layout_marginTop="10dp"
+                        android:textAllCaps="false"
+                        android:textColor="?attr/ptText"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        app:cornerRadius="12dp"
+                        app:strokeColor="?attr/ptOutline"
+                        app:strokeWidth="1dp"
+                        style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                    <TextView
+                        android:id="@+id/tvJoinHintTrial"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:gravity="center_horizontal"
+                        android:textColor="?attr/ptTextHint"
+                        android:textSize="12.5sp"
+                        style="@style/Text.PT.RowSubtitle" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+</LinearLayout>

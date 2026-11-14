@@ -1,0 +1,260 @@
+package com.playtranslate.ui
+
+import android.content.Context
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.text.TextPaint
+import android.text.TextUtils
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
+import com.playtranslate.R
+import com.playtranslate.themeColor
+import kotlin.math.ceil
+
+/** A segment's label size, which it shrinks from down to [LABEL_MIN_SP]
+ *  before it ellipsizes. */
+private const val LABEL_SP = 13
+private const val LABEL_MIN_SP = 10
+
+/** A segment's side padding: a control of more than three segments pads
+ *  them less, so four segments of localized text fit a phone-width row. */
+private fun segmentPadPx(count: Int, density: Float): Int = ((if (count > 3) 8 else 14) * density).toInt()
+
+/** The track's inset around its segments. */
+private fun trackPadPx(density: Float): Int = (3 * density).toInt()
+
+/** A segment's height. */
+private fun segmentHeightPx(density: Float): Int = (32 * density).toInt()
+
+/**
+ * The height a [buildPillToggle] control draws at: a segment's and the
+ * track's inset around it. For a host that shapes itself around the
+ * control (the game screen's mode pill sizes its X to it).
+ */
+fun pillToggleHeightPx(ctx: Context): Int {
+    val density = ctx.resources.displayMetrics.density
+    return segmentHeightPx(density) + 2 * trackPadPx(density)
+}
+
+/**
+ * The width a [buildPillToggle] control of [labels] needs to show every
+ * label at its full size, bold as the selected segment draws it, inside
+ * the segment's padding and the track's inset. For a host that sizes the
+ * control itself (the game screen's mode pill), so a long label is neither
+ * shrunk nor cut; a host short of this width shrinks the labels as before.
+ */
+fun pillToggleFitWidthPx(ctx: Context, labels: List<String>): Int {
+    val metrics = ctx.resources.displayMetrics
+    val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, LABEL_SP.toFloat(), metrics)
+        typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+    }
+    val widest = labels.maxOfOrNull { paint.measureText(it) } ?: 0f
+    val segment = ceil(widest).toInt() + 2 * segmentPadPx(labels.size, metrics.density)
+    return segment * labels.size + 2 * trackPadPx(metrics.density)
+}
+
+/**
+ * Build a sliding-pill segmented control inside [container]. The active pill
+ * fills with [R.attr.ptAccent] and animates between segments on tap; inactive
+ * labels render in [R.attr.ptTextMuted] over an [R.attr.ptSurface] track.
+ *
+ * Same visual treatment as the Overlay Mode toggle in Settings — extracted so
+ * RegionPickerSheet can reuse it without duplicating the layered FrameLayout
+ * + sliding indicator + bold-on-active text logic.
+ *
+ * Labels shrink from 13sp down to 10sp before they ellipsize, and a control
+ * of more than three segments pads them less, so four segments of localized
+ * text fit a phone-width row; two- and three-segment controls whose labels
+ * fit at 13sp render as they always did. A host that sizes the control
+ * itself can size it to its labels ([pillToggleFitWidthPx]). [roundEnds]
+ * rounds the track and the selected segment's indicator into full pills,
+ * for a host that is pill-shaped itself (the game screen's mode pill); the
+ * rest keep their rounded corners. Returns a [PillToggle] for a host that
+ * has to freeze the segments; hosts that never do can ignore it.
+ */
+fun <T> buildPillToggle(
+    container: FrameLayout,
+    options: List<Pair<String, T>>,
+    selected: T,
+    roundEnds: Boolean = false,
+    onSelect: (T) -> Unit,
+): PillToggle {
+    container.removeAllViews()
+    val ctx = container.context
+    val dp = ctx.resources.displayMetrics.density
+    val trackPad = trackPadPx(dp)
+    val pillH = segmentHeightPx(dp)
+    // Round ends: half of each one's height.
+    val trackRadius = if (roundEnds) pillToggleHeightPx(ctx) / 2f else 10 * dp
+    val pillRadius = if (roundEnds) pillH / 2f else 8 * dp
+    // Four segments on a phone leave each label about 45dp at the usual
+    // padding; a narrower inset gives localized labels the room.
+    val pillPad = segmentPadPx(options.size, dp)
+
+    val surfaceColor = ctx.themeColor(R.attr.ptSurface)
+    val accentColor = ctx.themeColor(R.attr.ptAccent)
+    val mutedColor = ctx.themeColor(R.attr.ptTextMuted)
+
+    val selectedIdx = options.indexOfFirst { it.second == selected }.coerceAtLeast(0)
+
+    val track = FrameLayout(ctx).apply {
+        layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        )
+        background = GradientDrawable().apply {
+            setColor(surfaceColor)
+            cornerRadius = trackRadius
+        }
+        setPadding(trackPad, trackPad, trackPad, trackPad)
+    }
+
+    val pillRow = LinearLayout(ctx).apply {
+        orientation = LinearLayout.HORIZONTAL
+        layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+        )
+    }
+
+    val indicator = View(ctx).apply {
+        background = GradientDrawable().apply {
+            setColor(accentColor)
+            cornerRadius = pillRadius
+        }
+        elevation = 2 * dp
+    }
+    track.addView(indicator)
+    pillRow.elevation = 3 * dp
+    track.addView(pillRow)
+
+    val pills = mutableListOf<TextView>()
+    var currentIdx = selectedIdx
+
+    options.forEachIndexed { idx, (label, _) ->
+        val isActive = idx == selectedIdx
+        val pill = TextView(ctx).apply {
+            text = label
+            textSize = LABEL_SP.toFloat()
+            typeface = Typeface.create(
+                "sans-serif-medium",
+                if (isActive) Typeface.BOLD else Typeface.NORMAL,
+            )
+            gravity = Gravity.CENTER
+            setTextColor(if (isActive) surfaceColor else mutedColor)
+            layoutParams = LinearLayout.LayoutParams(0, pillH, 1f)
+            setPadding(pillPad, 0, pillPad, 0)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setAutoSizeTextTypeUniformWithConfiguration(LABEL_MIN_SP, LABEL_SP, 1, TypedValue.COMPLEX_UNIT_SP)
+            isClickable = true
+            isFocusable = true
+        }
+        pills.add(pill)
+        pillRow.addView(pill)
+    }
+
+    container.addView(track)
+
+    val slider = SegmentIndicator(indicator, pillRow, pillH, selectedIdx)
+
+    pills.forEachIndexed { idx, pill ->
+        pill.setOnClickListener {
+            if (idx == currentIdx) return@setOnClickListener
+            currentIdx = idx
+
+            slider.slideTo(idx)
+
+            pills.forEachIndexed { i, p ->
+                val active = i == idx
+                p.setTextColor(if (active) surfaceColor else mutedColor)
+                p.typeface = Typeface.create(
+                    "sans-serif-medium",
+                    if (active) Typeface.BOLD else Typeface.NORMAL,
+                )
+            }
+
+            onSelect(options[idx].second)
+        }
+    }
+
+    return PillToggle(pills)
+}
+
+/** The segments of one [buildPillToggle] control. */
+class PillToggle internal constructor(private val segments: List<View>) {
+    /** A disabled segment takes no taps; the indicator stays where it is. */
+    fun setEnabled(enabled: Boolean) = segments.forEach { it.isEnabled = enabled }
+}
+
+/**
+ * The accent indicator of a sliding segmented control ([buildPillToggle],
+ * [buildAnkiModeToggle]): [indicator] sits in the track behind [row], both
+ * at the track's start edge, and is kept the size of the selected segment
+ * and under it after every layout of [row], so a resize that does not
+ * rebuild the control (a rotation in an activity that handles its own
+ * config changes) never strands it. Its offset comes from where the segment
+ * was laid out, not from its index: under RTL the row puts segment 0 at the
+ * right edge, which is also where the indicator rests.
+ */
+internal class SegmentIndicator(
+    private val indicator: View,
+    private val row: LinearLayout,
+    private val height: Int,
+    private var selected: Int,
+) {
+    /** A tap's slide is running; a layout pass meanwhile must not snap the
+     *  indicator to its target mid-animation. */
+    private var sliding = false
+
+    init {
+        // Zero wide until the first layout sizes it: a full-track accent
+        // would flash for a frame otherwise.
+        indicator.layoutParams = FrameLayout.LayoutParams(0, height, Gravity.TOP or Gravity.START)
+        row.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (!sliding) snap() }
+    }
+
+    /** Slides the indicator to segment [idx] (a tap). */
+    fun slideTo(idx: Int) {
+        selected = idx
+        val segment = row.getChildAt(idx) ?: return
+        sliding = true
+        indicator.animate()
+            .translationX(offsetOf(segment))
+            .setDuration(200)
+            .setInterpolator(android.view.animation.DecelerateInterpolator())
+            .withEndAction {
+                sliding = false
+                snap()
+            }
+            .start()
+    }
+
+    /** Sizes the indicator to the selected segment and puts it under it.
+     *  Writes only what changed: a new size relayouts, and this runs on
+     *  every layout of [row]. */
+    private fun snap() {
+        val segment = row.getChildAt(selected) ?: return
+        if (segment.width <= 0) return
+        if (indicator.layoutParams.width != segment.width) {
+            indicator.layoutParams = FrameLayout.LayoutParams(
+                segment.width, height, Gravity.TOP or Gravity.START,
+            )
+        }
+        val target = offsetOf(segment)
+        if (indicator.translationX != target) indicator.translationX = target
+    }
+
+    /** The translationX that puts the indicator's start edge on
+     *  [segment]'s. The indicator rests at the row's start edge, so under
+     *  RTL it is right-aligned and reaches a segment by moving left. */
+    private fun offsetOf(segment: View): Float =
+        if (row.layoutDirection == View.LAYOUT_DIRECTION_RTL) (segment.right - row.width).toFloat()
+        else segment.left.toFloat()
+}

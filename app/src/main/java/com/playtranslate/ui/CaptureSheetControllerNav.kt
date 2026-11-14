@@ -1,0 +1,691 @@
+package com.playtranslate.ui
+
+import android.content.Context
+import android.graphics.Rect
+import android.view.Choreographer
+import android.view.InputDevice
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.sign
+
+/** A controller-reachable action in the sheet: the view, and whether the A
+ *  button is delivered as a real press on the view ([ConfirmKeyPress]) with
+ *  the view's own hold semantics — its long-press (the Anki one-tap add)
+ *  fires at the long-press timeout exactly as a touch hold does, an earlier
+ *  release clicks. Everything else activates on A press-down. */
+data class NavAction(
+    val view: View,
+    val holdActivates: Boolean = false,
+    /** Set for a target that is no view of its own, one of many INSIDE
+     *  [view] (a row or a button of a definitions document): its rect and
+     *  its activation come from here. Null for an ordinary view. */
+    val target: NavTarget? = null,
+)
+
+/** Whether this and [other] name the same target: the same view, and the
+ *  same target inside it when there is one. Actions are collected afresh on
+ *  every keypress, so a cursor is compared, never kept by reference. */
+fun NavAction.sameTarget(other: NavAction): Boolean = view === other.view && target == other.target
+
+/** A press-down activation: the inner target's own, or a click on the view. */
+fun NavAction.activate() {
+    target?.activate() ?: view.performClick()
+}
+
+/** A controller target drawn inside a view that holds many of them. Two are
+ *  the same target when they are equal. */
+interface NavTarget {
+    /** The target's live rect on screen; false when it is not showing. */
+    fun rectOnScreen(out: Rect): Boolean
+    fun activate()
+
+    /** The target of the same view that takes this one's place when a
+     *  press of this one removes it, for a cursor to follow; null, the
+     *  default, for a target with none. */
+    fun successor(): NavTarget? = null
+}
+
+/** The sheet's side of the controller-navigation seam. [CaptureResultOverlay]
+ *  implements it; a separate interface because the nav controller can't be an
+ *  inner class in its own file. All rects are SCREEN coordinates. */
+interface CaptureSheetNavHost {
+    val isEditing: Boolean
+
+    /** A popover is open over the sheet (the text-size picker, a header's
+     *  ⋯ menu): the sticks stand down while it is. */
+    val isPopoverOpen: Boolean
+
+    /** The open popover's targets (a ⋯ menu's rows), or null when none is
+     *  open. While non-null they are the ONLY candidates; empty means the
+     *  popover can't be driven (the size slider), so dpad and A are
+     *  swallowed and B, as always, closes it. */
+    fun popoverNavActions(): List<NavAction>?
+
+    val inSliver: Boolean
+
+    /** B / system back, in every sheet state — the host owns the precedence
+     *  ladder (popover → edit → lens → sliver → dismiss). */
+    fun onControllerBack()
+    fun expandFromSliver()
+
+    /** The currently reachable actions, in visual order: the sections'
+     *  header actions, the Ask section's controls and the Words rows (each
+     *  a target inside the Words card's document, [NavAction.target]). */
+    fun navActions(): List<NavAction>
+
+    /** The grabber pill's drawn bounds while it's up (expanded posture only —
+     *  it fades out in the collapse band). The pill is a nav target: UP from
+     *  the top row reaches it, A on it parks the sheet to its sliver. */
+    fun handleRect(out: Rect): Boolean
+
+    /** A on the pill: park the sheet to its sliver (the window survives, so
+     *  this is safe to fire from a DOWN). */
+    fun collapseToSliver()
+
+    /** UP with nothing above the cursor on the sheet: true when the host
+     *  takes the controller off the sheet, from [fromOnScreen] (the cursor's
+     *  item), and the nav then drops its cursor; false leaves it where it
+     *  is. Definitions parks the sheet with its words' cursor on the word
+     *  nearest above the sheet, over the game. */
+    fun leaveSheetUp(fromOnScreen: Rect): Boolean
+
+    /** The parked strip's hint row while the sheet rests in its sliver: false
+     *  while expanded, and while the row is still fading in through the park
+     *  animation. A on the parked sheet rings this; a second A expands (see
+     *  [CaptureSheetControllerNav.handleKey]). */
+    fun sliverRect(out: Rect): Boolean
+
+    /** Left stick: move the panel's top edge by [dyPx] (positive = grow) —
+     *  the virtual grabber drag, including pulling the sheet out of its
+     *  sliver park. */
+    fun resizeBy(dyPx: Int)
+
+    /** Left stick centered / navigation suspended: commit the virtual drag —
+     *  adopt the height as the new ceiling, or park to the sliver below the
+     *  floor. Must no-op when no drag is in flight. */
+    fun commitResize()
+
+    /** Source-word run, in document order. Zero while the source is hidden. */
+    fun wordCount(): Int
+    fun wordRect(index: Int, out: Rect): Boolean
+    fun wordRunIsRtl(): Boolean
+    fun activateWord(index: Int)
+
+    /** The scroll viewport, or false while no content is up (status phase). */
+    fun scrollViewportOnScreen(out: Rect): Boolean
+    fun scrollBy(dy: Int)
+    fun ensureVisible(itemOnScreen: Rect)
+
+    /** Paint (or hide, null) the focus ring. Screen-space; the host converts. */
+    fun setRing(itemOnScreen: Rect?, clipOnScreen: Rect?)
+}
+
+/**
+ * Gamepad navigation for the over-game capture sheet: B/back dismisses (the
+ * host's ladder), dpad moves a VIRTUAL cursor across the grabber pill, the
+ * buttons, the targets drawn inside a view (the Words rows of a definitions
+ * document, each its own item at its own rect) and the source words, A
+ * activates (the pill parks to the sliver; on the parked sheet a first A
+ * rings the strip and a second expands it; a target inside a view activates
+ * itself and never clicks the view), the right stick scrolls, and the left
+ * stick drags the sheet's edge like the grabber. An open popover is modal: a
+ * header's ⋯ menu makes its rows the only targets, the size slider takes none
+ * (B closes either). Virtual, so no Android view ever gains focus: words and
+ * a document's rows aren't views, the ring is custom anyway, and real focus
+ * would paint stock highlights next to it. Actions are collected afresh on
+ * every keypress, so the cursor is matched to them by equality (the same
+ * view, and an equal target inside it), never by reference.
+ * Created only while the sheet window is focusable (controller attached);
+ * all input arrives through the root's dispatchKeyEvent / onGenericMotionEvent.
+ */
+class CaptureSheetControllerNav(
+    ctx: Context,
+    private val host: CaptureSheetNavHost,
+) {
+    sealed interface Item {
+        /** [floating]: a popover's row, which lives outside the scroller, so
+         *  it rings unclipped and scrolls, if at all, within its own menu.
+         *  [target]: one of many targets inside [view] ([NavAction.target]),
+         *  whose rect and activation are its own; null for the view itself.
+         *  Two buttons are the same item exactly when their view and target
+         *  are equal, so two targets in one view are two items. */
+        data class Button(
+            val view: View,
+            val holdActivates: Boolean,
+            val floating: Boolean = false,
+            val target: NavTarget? = null,
+        ) : Item
+        data class Word(val index: Int) : Item
+        /** The grabber pill above the sheet — A parks the sheet to its sliver. */
+        object Handle : Item
+        /** The parked sheet itself — reached only by A while slivered, never
+         *  a spatial candidate; a second A expands it. */
+        object Sliver : Item
+    }
+
+    private val density = ctx.resources.displayMetrics.density
+
+    private var cursor: Item? = null
+
+    /** Keycodes whose DOWN we consumed, so the matching UP is consumed too —
+     *  an unconsumed UP for an eaten DOWN is the classic stuck-key source for
+     *  the app underneath. */
+    private val consumedDown = mutableSetOf<Int>()
+
+    // ── Keys ─────────────────────────────────────────────────────────────
+
+    fun handleKey(ev: KeyEvent): Boolean {
+        if (ev.action == KeyEvent.ACTION_UP) {
+            if (!consumedDown.remove(ev.keyCode)) return false
+            when {
+                ControllerKeys.isBack(ev.keyCode) -> host.onControllerBack()
+                ControllerKeys.isActivate(ev.keyCode) -> onActivateUp(ev)
+            }
+            return true
+        }
+        if (ev.action != KeyEvent.ACTION_DOWN) return false
+        val keyCode = ev.keyCode
+
+        // Back works in every state, but FIRES ON UP (armed here): dismissal
+        // can remove this focused window, and acting on the DOWN would orphan
+        // the UP into the game whenever the press outlives the exit
+        // animation's ~200ms grace — firing on the consumed UP completes the
+        // pair by construction instead of by timing (same pattern as the
+        // lens's dismiss). Arming only the FIRST down keeps a B held from
+        // before the sheet appeared (e.g. a B-bound capture hotkey) from
+        // dismissing on release: its auto-repeats are consumed but never arm.
+        if (ControllerKeys.isBack(keyCode)) {
+            if (ev.repeatCount == 0) consumedDown.add(keyCode)
+            return true
+        }
+        // The editor owns everything else — dpad moves its text cursor, enter
+        // inserts a newline. (Back above is the edit-cancel.)
+        if (host.isEditing) return false
+
+        val dir = ControllerKeys.direction(keyCode)
+        val activate = ControllerKeys.isActivate(keyCode)
+        if (dir == null && !activate) return false
+
+        when {
+            // Slivered: dpad re-expands outright (the tap-expand mirror); A is
+            // two-step — the first rings the parked strip, the second expands
+            // it. B is deliberately NOT part of the two-step: the back path
+            // above never spends a press on un-ringing, so a ringed sliver
+            // still dismisses on ONE B. The repeat gate is load-bearing: a
+            // held A auto-repeats, and without it the hold would ring and
+            // then expand through its first repeat.
+            host.inSliver -> if (ev.repeatCount == 0) {
+                if (dir != null || cursor == Item.Sliver) host.expandFromSliver() else selectSliver()
+            }
+            // A popover with nothing to drive (the size slider): swallow nav
+            // keys so framework focus search can't wander into a button and
+            // paint a stock highlight, but act on none of them (B above
+            // closes the popover). A ⋯ menu falls through: its rows are the
+            // only candidates while it's open.
+            host.isPopoverOpen && host.popoverNavActions().isNullOrEmpty() -> Unit
+            dir != null -> {
+                cancelHold()
+                if (cursor == null) selectFirst() else moveCursor(dir)
+            }
+            // First A selects; only a second activates.
+            ev.repeatCount == 0 -> if (cursor == null) selectFirst() else onActivateDown(ev)
+        }
+        consumedDown.add(keyCode)
+        return true
+    }
+
+    /** An action fired from here may freely dismiss the sheet — even
+     *  mid-press, as the hold path's long-press (the one-tap) does at the
+     *  long-press timeout: the consumed A's UP cannot orphan into the app
+     *  beneath, because the dismissal seam holds the window as an invisible
+     *  key sink until every tracked press releases ([WindowKeyPairGuard] on
+     *  the sheet root). */
+    private fun onActivateDown(ev: KeyEvent) {
+        when (val cur = cursor) {
+            null -> selectFirst()
+            is Item.Button -> {
+                if (!cur.view.isShown) {
+                    selectFirst()
+                } else if (cur.holdActivates) {
+                    if (keyPressView == null) {
+                        keyPressView = cur.view
+                        ConfirmKeyPress.down(cur.view, ev)
+                    }
+                } else {
+                    // The action's own press-down activation: a target
+                    // inside the view activates itself, a view is clicked.
+                    NavAction(cur.view, target = cur.target).activate()
+                }
+            }
+            is Item.Word -> host.activateWord(cur.index)
+            // Parks, never dismisses — the window survives, so DOWN is safe.
+            Item.Handle -> host.collapseToSliver()
+            // Only reachable with a stale cursor (every exit from the park
+            // clears it) — restart like a vanished button.
+            Item.Sliver -> selectFirst()
+        }
+    }
+
+    // ── Hold-capable buttons: A is a real press on the view ──────────────
+    // [ConfirmKeyPress] runs the view's own press machinery, so hold timing
+    // and outcomes are identical to a touch press: pressed ripple on DOWN,
+    // long-press at the timeout, click on an early release. The only nav-side
+    // state is which view holds the in-flight press.
+
+    private var keyPressView: View? = null
+
+    private fun onActivateUp(ev: KeyEvent) {
+        val held = keyPressView ?: return
+        keyPressView = null
+        ConfirmKeyPress.up(held, ev)
+    }
+
+    private fun cancelHold() {
+        val held = keyPressView ?: return
+        keyPressView = null
+        ConfirmKeyPress.cancel(held)
+    }
+
+    // ── Cursor ───────────────────────────────────────────────────────────
+
+    private val tmpLoc = IntArray(2)
+    private val tmpRect = Rect()
+    /** Where the ring last was, for [revalidateCursor]'s nearest retarget. */
+    private val lastItemRect = Rect()
+
+    private fun viewRectOnScreen(v: View, out: Rect): Boolean {
+        if (!v.isShown || v.width <= 0 || v.height <= 0) return false
+        v.getLocationOnScreen(tmpLoc)
+        out.set(tmpLoc[0], tmpLoc[1], tmpLoc[0] + v.width, tmpLoc[1] + v.height)
+        return true
+    }
+
+    /** A button's live rect: its target's when it has one (a row of a
+     *  document), else its view's. False when it is not showing, which
+     *  makes it no candidate and leaves it no ring. Everything that reads a
+     *  button's rect reads it here. */
+    private fun buttonRectOnScreen(b: Item.Button, out: Rect): Boolean =
+        b.target?.rectOnScreen(out) ?: viewRectOnScreen(b.view, out)
+
+    /** [action] as a button item; [floating] for a popover's row. */
+    private fun buttonOf(action: NavAction, floating: Boolean = false) =
+        Item.Button(action.view, action.holdActivates, floating, action.target)
+
+    /** Collected lazily per keypress — no registry to go stale. An open
+     *  popover is modal: its rows are the whole set. */
+    private fun candidates(): List<Pair<Item, Rect>> {
+        val out = ArrayList<Pair<Item, Rect>>()
+        host.popoverNavActions()?.let { rows ->
+            for (a in rows) {
+                val item = buttonOf(a, floating = true)
+                val r = Rect()
+                if (buttonRectOnScreen(item, r)) out.add(item to r)
+            }
+            return out
+        }
+        run {
+            val r = Rect()
+            if (host.handleRect(r)) out.add(Item.Handle to r)
+        }
+        for (a in host.navActions()) {
+            val item = buttonOf(a)
+            val r = Rect()
+            if (buttonRectOnScreen(item, r)) out.add(item to r)
+        }
+        for (i in 0 until host.wordCount()) {
+            val r = Rect()
+            if (host.wordRect(i, r)) out.add(Item.Word(i) to r)
+        }
+        return out
+    }
+
+    private fun setCursor(item: Item, rectOnScreen: Rect) {
+        cursor = item
+        lastItemRect.set(rectOnScreen)
+        // The pill and a popover's rows live outside the scroller, which can't
+        // bring them into view. A row scrolls within its own menu instead (a
+        // short host caps the card and makes it scroll).
+        when {
+            item is Item.Button && item.floating -> item.view.revealInScrollingAncestor()
+            item != Item.Handle -> host.ensureVisible(rectOnScreen)
+        }
+        syncRing()
+    }
+
+    private fun selectFirst() {
+        // The pill is deliberately NOT the first selection even though it's
+        // topmost: the first press lands where it always has (the content's
+        // top row); the pill is the UP-from-there target.
+        val cands = candidates().filter { it.first != Item.Handle }
+        val idx = SheetNavGeometry.firstItem(cands.map { it.second.toNavRect() }) ?: return
+        setCursor(cands[idx].first, cands[idx].second)
+    }
+
+    /** A on the parked sheet: ring the strip. The cursor is set even while
+     *  the strip's hint is still fading in (a press during the park
+     *  animation): [syncRing] paints the ring once the host has a
+     *  [CaptureSheetNavHost.sliverRect], and the second A expands either way.
+     *  The host drops this cursor on every path out of the park — expand,
+     *  tap, drag, stick pull — so it never outlives the sliver. */
+    private fun selectSliver() {
+        cursor = Item.Sliver
+        syncRing()
+    }
+
+    private fun moveCursor(dir: SheetNavGeometry.Dir) {
+        val cur = cursor ?: return
+        // Inside the word run, left/right steps document order — CJK wrapping
+        // makes visual left/right unreliable, and the spans are ground truth.
+        // Running off either end falls through to spatial nav (so the cursor
+        // can leave the card sideways).
+        if (cur is Item.Word &&
+            (dir == SheetNavGeometry.Dir.LEFT || dir == SheetNavGeometry.Dir.RIGHT)
+        ) {
+            val forward = (dir == SheetNavGeometry.Dir.RIGHT) != host.wordRunIsRtl()
+            val next = cur.index + if (forward) 1 else -1
+            if (next in 0 until host.wordCount() && host.wordRect(next, tmpRect)) {
+                setCursor(Item.Word(next), tmpRect)
+                return
+            }
+        }
+        val cands = candidates()
+        val curIdx = cands.indexOfFirst { it.first == cur }
+        if (curIdx < 0) {
+            // The cursor's item vanished (layout change) — restart from the top.
+            selectFirst()
+            return
+        }
+        val from = cands[curIdx].second.toNavRect()
+        val target = SheetNavGeometry.nextInDirection(from, cands.map { it.second.toNavRect() }, dir)
+        if (target == null) {
+            // Nothing that way: the cursor stays (no wrap-around), except
+            // off the sheet's top, where the host may take the controller to
+            // what lies above it. An open menu's rows are modal: off its top
+            // row the cursor stays.
+            if (dir == SheetNavGeometry.Dir.UP && host.popoverNavActions() == null &&
+                host.leaveSheetUp(cands[curIdx].second)
+            ) {
+                clearCursor()
+            }
+            return
+        }
+        setCursor(cands[target].first, cands[target].second)
+    }
+
+    /** Per-frame from the sheet's pre-draw hook: re-read the item's live rect
+     *  (scroll, resize, entrance/exit all move it) and re-clip to the viewport.
+     *  The pill, the parked strip and a popover's rows sit OUTSIDE the
+     *  scroller and ring unclipped. */
+    fun syncRing() {
+        val cur = cursor ?: run {
+            host.setRing(null, null)
+            return
+        }
+        val ok = when (cur) {
+            is Item.Button -> buttonRectOnScreen(cur, tmpRect)
+            is Item.Word -> host.wordRect(cur.index, tmpRect)
+            Item.Handle -> host.handleRect(tmpRect)
+            Item.Sliver -> host.sliverRect(tmpRect)
+        }
+        if (!ok) {
+            host.setRing(null, null)
+            return
+        }
+        val clip = if (cur == Item.Handle || cur == Item.Sliver || (cur is Item.Button && cur.floating)) {
+            null
+        } else if (host.scrollViewportOnScreen(clipRect)) {
+            clipRect
+        } else {
+            host.setRing(null, null)
+            return
+        }
+        lastItemRect.set(tmpRect)
+        host.setRing(tmpRect, clip)
+    }
+
+    private val clipRect = Rect()
+
+    /** The cursor is stale (rebind, sliver park, edit open): drop it. */
+    fun clearCursor() {
+        cancelHold()
+        cursor = null
+        host.setRing(null, null)
+    }
+
+    /** Word spans were retokenized — a word cursor's index is meaningless. */
+    fun onWordSpansChanged() {
+        if (cursor is Item.Word) clearCursor()
+    }
+
+    /** After a layout-changing activation (an eye hides its section's card
+     *  and its header's other actions; the eye itself stays in the header):
+     *  if the cursor's item went away, which for a button is no longer being
+     *  among the candidates (a target inside a view included), the cursor
+     *  lands on whatever now sits nearest where the ring last was. */
+    fun revalidateCursor() {
+        val cur = cursor ?: return
+        val stillValid = when {
+            // A button — and anything at all while a popover is open — is
+            // valid only among the current candidates: shown is not enough
+            // (a header button under a popover's scrim is shown but out of
+            // reach, a popover row that closed is gone).
+            cur is Item.Button || host.popoverNavActions() != null ->
+                candidates().any { it.first == cur }
+            cur is Item.Word -> cur.index < host.wordCount() && host.wordRect(cur.index, tmpRect)
+            cur == Item.Handle -> host.handleRect(tmpRect)
+            else -> host.inSliver   // Item.Sliver
+        }
+        if (stillValid) return
+        val cands = candidates()
+        if (cands.isEmpty()) {
+            clearCursor()
+            return
+        }
+        // A target that names what takes its place ([NavTarget.successor]:
+        // an explain answer's ✕ leaves the button that brought it) is
+        // followed there before nearness is asked, which would pick
+        // whatever stands closest to where the ✕ was: the row's eye.
+        (cur as? Item.Button)?.let { gone ->
+            val next = gone.target?.successor() ?: return@let
+            cands.firstOrNull { (item, _) -> item is Item.Button && item.view === gone.view && item.target == next }
+                ?.let { (item, rect) ->
+                    setCursor(item, rect)
+                    return
+                }
+        }
+        var best = 0
+        var bestD = Long.MAX_VALUE
+        for (i in cands.indices) {
+            val r = cands[i].second
+            val dx = (r.centerX() - lastItemRect.centerX()).toLong()
+            val dy = (r.centerY() - lastItemRect.centerY()).toLong()
+            val d = dx * dx + dy * dy
+            if (d < bestD) {
+                bestD = d
+                best = i
+            }
+        }
+        setCursor(cands[best].first, cands[best].second)
+    }
+
+    /** A popover opened (after its first layout) or closed over the sheet.
+     *  A live cursor follows it — into a ⋯ menu's first row as it opens,
+     *  back onto [anchor], what opened it, as it closes — while no cursor
+     *  stays no cursor (the next press starts one, among the rows if a menu
+     *  is up). A hold in flight ends here without firing: its row may be the
+     *  one whose long-press just closed the menu. */
+    fun onPopoverChanged(open: Boolean, anchor: View) {
+        cancelHold()
+        val cur = cursor ?: return
+        if (open) {
+            if (!host.popoverNavActions().isNullOrEmpty()) selectFirst()
+            return
+        }
+        if (cur is Item.Button && cur.floating) {
+            // The anchor is an ordinary view: its own item, never a target
+            // drawn inside it.
+            val back = candidates().firstOrNull { (item, _) ->
+                item is Item.Button && item.view === anchor && item.target == null
+            }
+            if (back != null) setCursor(back.first, back.second) else revalidateCursor()
+        }
+    }
+
+    // ── Sticks: left is the virtual grabber drag, right scrolls ──────────
+
+    private var leftActive = false
+    private var leftY = 0f
+    private var leftDeadZone = STICK_DEAD_ZONE
+    private var rightActive = false
+    private var rightY = 0f
+    private var rightDeadZone = STICK_DEAD_ZONE
+
+    fun handleGenericMotion(ev: MotionEvent): Boolean {
+        if (ev.actionMasked != MotionEvent.ACTION_MOVE) return false
+        if (ev.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK) return false
+        if (host.isEditing || host.isPopoverOpen) return false
+        // Hat-driven dpad: leave the event UNCONSUMED so ViewRootImpl's
+        // synthetic joystick handler still converts AXIS_HAT_* into the DPAD
+        // key events handleKey navigates by. (Consuming every joystick MOVE
+        // would kill the dpad on controllers that report it as a hat.)
+        if (ev.getAxisValue(MotionEvent.AXIS_HAT_X) != 0f ||
+            ev.getAxisValue(MotionEvent.AXIS_HAT_Y) != 0f
+        ) {
+            return false
+        }
+        val device = ev.device
+
+        // Left stick: the virtual grabber drag, driven by Y alone — a sideways
+        // push drives nothing (it would otherwise begin, and then commit, a
+        // zero-delta resize) but is still consumed below, because X/Y are the
+        // axes ViewRootImpl synthesizes DPAD keys from and this stick is not
+        // the nav stick. (The right stick needs no such claim: nothing
+        // synthesizes off Z/RZ.)
+        val flatY = device?.getMotionRange(MotionEvent.AXIS_Y, ev.source)?.flat ?: 0f
+        leftDeadZone = maxOf(flatY, STICK_DEAD_ZONE)
+        val lx = ev.getAxisValue(MotionEvent.AXIS_X)
+        val ly = ev.getAxisValue(MotionEvent.AXIS_Y)
+        val leftNow = abs(ly) > leftDeadZone
+
+        // Right stick (vertical only): scroll. The standard gamepad mapping
+        // puts the right stick on Z/RZ; a controller that declares no RZ
+        // range reports it as RX/RY instead.
+        val ryAxis =
+            if (device?.getMotionRange(MotionEvent.AXIS_RZ, ev.source) != null) MotionEvent.AXIS_RZ
+            else MotionEvent.AXIS_RY
+        val flatRy = device?.getMotionRange(ryAxis, ev.source)?.flat ?: 0f
+        rightDeadZone = maxOf(flatRy, STICK_DEAD_ZONE)
+        val ry = ev.getAxisValue(ryAxis)
+        val rightNow = abs(ry) > rightDeadZone
+
+        val ownedBefore = leftActive || rightActive
+        val leftWas = leftActive
+        leftActive = leftNow
+        leftY = ly
+        rightActive = rightNow
+        rightY = ry
+
+        // Left stick released → the virtual drag's commit (adopt height or
+        // park to the sliver), mirroring the touch drag's finger-up.
+        if (leftWas && !leftNow) host.commitResize()
+
+        if (!leftNow && !rightNow) {
+            stopStickRepeater()
+            // Consume the centering event of a deflection we owned, and a
+            // sideways-only left push — held sideways it stays claimed; its
+            // own centering event falls through harmlessly, since the
+            // synthetic handler never saw a deflection to key off.
+            return ownedBefore || abs(lx) > leftDeadZone
+        }
+        // The repeater runs while either stick drives; the per-frame steps
+        // gate themselves (scroll is a no-op in the sliver, where the left
+        // stick can still pull the sheet out of the park).
+        startStickRepeater()
+        return true
+    }
+
+    private var repeaterRunning = false
+    private var lastFrameNs = 0L
+    private val frameCallback = object : Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            if (!repeaterRunning) return
+            // Modal self-check, HERE and not only in the event path: a modal
+            // opening mid-deflection (editor, popover) doesn't stop this loop,
+            // and the centering MOVE that normally would is swallowed by
+            // handleGenericMotion's modal bail — after which a stick at rest
+            // emits no further events at all, leaving the stale deflection
+            // driving forever. One check at the single point every frame
+            // passes through. (The sliver is NOT in this list: the left
+            // stick drags the sheet out of the park; the scroll step gates
+            // on it below.)
+            if (host.isEditing || host.isPopoverOpen) {
+                suspendSticks()
+                return
+            }
+            // Clamp a dropped-frame gap so a jank spike can't teleport the drive.
+            val dt = ((frameTimeNanos - lastFrameNs) / 1e9f).coerceIn(0f, 0.05f)
+            lastFrameNs = frameTimeNanos
+            if (leftActive) {
+                val mag = ((abs(leftY) - leftDeadZone) / (1f - leftDeadZone)).coerceIn(0f, 1f)
+                // Stick up (negative axis) grows the sheet — the grabber
+                // pulled upward.
+                host.resizeBy((-sign(leftY) * mag * STICK_MAX_DP_PER_SEC * density * dt).roundToInt())
+            }
+            if (rightActive && !host.inSliver) {
+                val mag = ((abs(rightY) - rightDeadZone) / (1f - rightDeadZone)).coerceIn(0f, 1f)
+                host.scrollBy((sign(rightY) * mag * STICK_MAX_DP_PER_SEC * density * dt).roundToInt())
+            }
+            Choreographer.getInstance().postFrameCallback(this)
+        }
+    }
+
+    private fun startStickRepeater() {
+        if (repeaterRunning) return
+        repeaterRunning = true
+        lastFrameNs = System.nanoTime()
+        Choreographer.getInstance().postFrameCallback(frameCallback)
+    }
+
+    private fun stopStickRepeater() {
+        if (!repeaterRunning) return
+        repeaterRunning = false
+        Choreographer.getInstance().removeFrameCallback(frameCallback)
+    }
+
+    /** Stick shutdown for modal entry and teardown: stop the loop AND land a
+     *  mid-flight virtual drag on its commit, so the panel never sticks at an
+     *  uncommitted height. */
+    private fun suspendSticks() {
+        leftActive = false
+        rightActive = false
+        stopStickRepeater()
+        host.commitResize()
+    }
+
+    /** Teardown (dismissal): stop timers, hide the ring. */
+    fun release() {
+        cancelHold()
+        suspendSticks()
+        cursor = null
+        host.setRing(null, null)
+    }
+
+    private fun Rect.toNavRect() = SheetNavGeometry.NavRect(left, top, right, bottom)
+
+    companion object {
+        /** Per-axis stick dead zone (raised to the device's reported flat).
+         *  Shared with the lens's stick scroll and the in-app pages'
+         *  [ActivityStickScroll] so every surface engages at the same
+         *  deflection. */
+        const val STICK_DEAD_ZONE = 0.20f
+
+        /** Full-deflection speed for every stick drive — the sheet's scroll,
+         *  the left stick's grabber drag, the lens's definitions scroll, and
+         *  the in-app pages' [ActivityStickScroll] (halved from the original
+         *  1400 after it read as too fast on device). */
+        const val STICK_MAX_DP_PER_SEC = 700f
+    }
+}
