@@ -333,7 +333,6 @@
     <string name="words_loading">Đang tra từ…</string>
 
     <string name="lens_loading">Đang tra…</string>
-    <string name="lens_also_matches">Cũng khớp với</string>
     <string name="load_more_count">Tải thêm (<xliff:g id="count" example="2">%1$d</xliff:g>)</string>
     <string name="section_other_matches">Kết quả khác</string>
 
@@ -1577,9 +1576,7 @@
 
     <string name="pt_cloud_translate_row_subtitle_no_key">Đã bao gồm các mô hình dịch trả phí tốt nhất</string>
 
-    <string name="pt_cloud_key_label">Khóa ứng dụng khách</string>
 
-    <string name="pt_cloud_key_hint">Dán khóa bạn đã nhận được</string>
 
     <string name="pt_cloud_status_title">Dịch vụ</string>
 

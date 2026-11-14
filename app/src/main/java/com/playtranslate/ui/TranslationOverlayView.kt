@@ -271,6 +271,8 @@ class TranslationOverlayView(
     ) {
         val limitsChanged = minTextRaised && growthLimits != this.growthLimits
         this.growthLimits = growthLimits
+        // NeonLens X: what "Read translation aloud" reads.
+        com.playtranslate.tts.SpokenTranslation.recordBoxes(boxes)
 
         // Skip everything if content is identical (avoids flash on false-positive recaptures)
         if (!limitsChanged && this.boxes == boxes && cropOffsetX == cropLeft && cropOffsetY == cropTop

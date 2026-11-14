@@ -1239,6 +1239,8 @@ class SettingsRenderer(
                 iconRes = R.drawable.ic_mobile_wrench,
                 title = ctx.getString(R.string.settings_support_keep_running_title),
                 summary = ctx.getString(R.string.settings_support_keep_running_subtitle),
+                // Last visible row: the bug report and donate rows are hidden.
+                isLast = true,
                 onClick = { ctx.startActivity(Intent(ctx, KeepRunningActivity::class.java)) },
             ),
         )
@@ -1253,6 +1255,8 @@ class SettingsRenderer(
                 onLongClick = { (ctx as? Activity)?.let { BugReport.share(it, lifecycleScope) } },
             ),
         )
+        // NeonLens X: the bug report goes to the original project's support; hidden.
+        root.findViewById<View>(R.id.rowReportBug).isGone = true
         val donateUrl = "https://go.playtranslate.com/donate"
         bindHubCell(
             rowDonate,
@@ -1284,28 +1288,16 @@ class SettingsRenderer(
      *  trusted: after a self-update no check may run for another day, and a
      *  cell still claiming an update would be a lie the user can't dismiss. */
     private fun bindCheckUpdatesCell() {
-        val updateAvailable = prefs.updateAvailableTag
-            .let { it.isNotEmpty() && UpdateChecker.isNewer(it, BuildConfig.VERSION_NAME) }
+        // NeonLens X: no update check. The row states who built this app and
+        // which version is installed, and does nothing when tapped.
         bindHubCell(
             rowCheckUpdates,
             HubCell(
-                iconRes = R.drawable.ic_update,
-                iconTint = if (updateAvailable) R.attr.ptWarning else R.attr.ptAccent,
-                title = ctx.getString(
-                    if (updateAvailable) R.string.settings_support_check_updates_title_available
-                    else R.string.settings_support_check_updates_title
-                ),
-                titleTint = if (updateAvailable) R.attr.ptWarning else null,
-                summary = if (updateCheckInFlight) {
-                    ctx.getString(R.string.settings_support_check_updates_checking)
-                } else {
-                    ctx.getString(
-                        R.string.settings_support_check_updates_subtitle,
-                        BuildConfig.VERSION_NAME,
-                    )
-                },
-                trailing = if (updateCheckInFlight) Trailing.PROGRESS else Trailing.CHEVRON,
-                onClick = if (updateCheckInFlight) null else ({ startUpdateCheck() }),
+                iconRes = R.drawable.ic_ai_info,
+                title = ctx.getString(R.string.nl_about_developer),
+                summary = ctx.getString(R.string.nl_about_version, BuildConfig.VERSION_NAME),
+                trailing = Trailing.NONE,
+                onClick = null,
             ),
         )
     }

@@ -337,7 +337,6 @@
     <string name="words_loading">Wörter werden nachgeschlagen…</string>
 
     <string name="lens_loading">Wird nachgeschlagen…</string>
-    <string name="lens_also_matches">Auch möglich</string>
     <string name="load_more_count">Mehr laden (<xliff:g id="count" example="2">%1$d</xliff:g>)</string>
     <string name="section_other_matches">Weitere Treffer</string>
 
@@ -1584,9 +1583,7 @@
 
     <string name="pt_cloud_translate_row_subtitle_no_key">Die besten bezahlten Übersetzungsmodelle inklusive</string>
 
-    <string name="pt_cloud_key_label">Client-Schlüssel</string>
 
-    <string name="pt_cloud_key_hint">Füge den erhaltenen Schlüssel ein</string>
 
     <string name="pt_cloud_status_title">Dienst</string>
 

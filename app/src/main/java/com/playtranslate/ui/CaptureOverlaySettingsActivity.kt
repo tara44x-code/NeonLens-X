@@ -368,6 +368,7 @@ class CaptureOverlaySettingsActivity : SettingsSubPageActivity() {
         }
 
         setupOverlayStyle()
+        setupArabicDialect()
 
         // -- Filter furigana toggle (Japanese source only) --
         // Drops furigana from Japanese OCR before grouping (RubyFilter). Read
@@ -1319,12 +1320,16 @@ class CaptureOverlaySettingsActivity : SettingsSubPageActivity() {
             refresh()
             restartLive()
         }
+        // The switch itself is not clickable (see settings_row_switch); the
+        // whole row is the tap target, as on the rows above.
+        row.setOnClickListener { toggle.toggle() }
         boldToggle.isChecked = prefs.overlayBoldText
         boldToggle.setOnCheckedChangeListener { _, checked ->
             prefs.overlayBoldText = checked
             refresh()
             restartLive()
         }
+        boldRow.setOnClickListener { boldToggle.toggle() }
         opacity.setRange(Prefs.OVERLAY_OPACITY_MIN, 100)
         opacity.value = prefs.overlayBgOpacity
         opacity.contentDescription = getString(R.string.nl_overlay_bg_opacity)
@@ -1344,6 +1349,27 @@ class CaptureOverlaySettingsActivity : SettingsSubPageActivity() {
             restartLive()
         }
         refresh()
+    }
+
+    /** NeonLens X: which Arabic the AI translators write. Takes effect on the
+     *  next translation; lines already translated keep their wording. */
+    private fun setupArabicDialect() {
+        val group = findViewById<android.widget.RadioGroup>(R.id.rgArabicDialect)
+        group.check(
+            when (prefs.arabicDialect) {
+                Prefs.ARABIC_DIALECT_IRAQI -> R.id.rbDialectIraqi
+                Prefs.ARABIC_DIALECT_EGYPTIAN -> R.id.rbDialectEgyptian
+                else -> R.id.rbDialectMsa
+            }
+        )
+        group.setOnCheckedChangeListener { _, checkedId ->
+            prefs.arabicDialect = when (checkedId) {
+                R.id.rbDialectIraqi -> Prefs.ARABIC_DIALECT_IRAQI
+                R.id.rbDialectEgyptian -> Prefs.ARABIC_DIALECT_EGYPTIAN
+                else -> Prefs.ARABIC_DIALECT_MSA
+            }
+            if (CaptureService.instance?.isLive == true) CaptureService.instance?.stopLive()
+        }
     }
 
     /** A row of round colour buttons; the selected one gets an accent ring. */

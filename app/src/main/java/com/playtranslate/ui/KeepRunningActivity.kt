@@ -61,6 +61,10 @@ class KeepRunningActivity : SettingsSubPageActivity() {
      *  sheet. Static in the layout, so it shows whatever [render] decides. */
     private fun bindReportBugRow() {
         val row = findViewById<View>(R.id.rowReportBug)
+        // NeonLens X: the bug report goes to the original project's support,
+        // so its card is hidden here as in Settings.
+        findViewById<View>(R.id.cardReportBug).isVisible = false
+        findViewById<View>(R.id.dividerReportBug).isVisible = false
         row.findViewById<TextView>(R.id.tvRowTitle).setText(R.string.settings_support_report_bug_title)
         row.findViewById<TextView>(R.id.tvRowSubtitle).apply {
             setText(R.string.settings_support_report_bug_subtitle)

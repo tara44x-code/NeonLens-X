@@ -139,6 +139,24 @@ class PlayTranslateApplication : Application() {
         // force-inits the recorder (no context can exist before a first
         // commit anyway); called from backend threads — contextBlockFor is
         // thread-safe and returns "" whenever the feature is off.
+        // NeonLens X: the Arabic dialect the user picked.
+        com.playtranslate.translation.llm.LlmPromptTemplates.styleProvider = { target ->
+            if (target == "ar" || target.startsWith("ar-")) {
+                when (Prefs(this).arabicDialect) {
+                    Prefs.ARABIC_DIALECT_IRAQI ->
+                        "Write the Arabic translation in colloquial Iraqi Arabic (Baghdadi dialect), " +
+                            "the way Iraqis naturally speak, not in Modern Standard Arabic. " +
+                            "Use Arabic script and everyday Iraqi words and expressions."
+                    Prefs.ARABIC_DIALECT_EGYPTIAN ->
+                        "Write the Arabic translation in colloquial Egyptian Arabic (Cairene dialect), " +
+                            "the way Egyptians naturally speak, not in Modern Standard Arabic. " +
+                            "Use Arabic script and everyday Egyptian words and expressions."
+                    else -> ""
+                }
+            } else {
+                ""
+            }
+        }
         com.playtranslate.translation.llm.LlmPromptTemplates.contextProvider = { source, target ->
             CaptureService.instance?.translationLogRecorderIfInitialized
                 ?.contextBlockFor(source, target) ?: ""

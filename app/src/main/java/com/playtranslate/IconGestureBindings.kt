@@ -100,9 +100,13 @@ enum class HoldAction : IconAction {
     /** Tap-to-lookup ([TapAction.TAP_TO_LOOKUP]) at the hold threshold; the
      *  lift does nothing, and a slide into a drag dismisses the capture, as
      *  [CAPTURE_SCREEN]'s does. */
-    TAP_TO_LOOKUP;
+    TAP_TO_LOOKUP,
+    /** NeonLens X: read the latest translation aloud at the hold threshold
+     *  ([com.playtranslate.tts.SpokenTranslation]); the lift does nothing. */
+    READ_TRANSLATION;
 
     override fun titleRes(hint: HintTextKind): Int = when (this) {
+        READ_TRANSLATION -> R.string.nl_icon_action_read_translation
         CAPTURE_SCREEN -> R.string.icon_action_capture_screen
         SHOW_TRANSLATIONS -> R.string.icon_action_show_translations
         OPEN_QUICK_MENU -> R.string.icon_action_open_quick_menu
@@ -114,7 +118,7 @@ enum class HoldAction : IconAction {
 
     override fun isOfferedOn(hint: HintTextKind): Boolean = when (this) {
         CAPTURE_SCREEN, SHOW_TRANSLATIONS, OPEN_QUICK_MENU, TOGGLE_AUTO_TRANSLATE,
-        CHANGE_GAME_LANGUAGE, TAP_TO_LOOKUP -> true
+        CHANGE_GAME_LANGUAGE, TAP_TO_LOOKUP, READ_TRANSLATION -> true
         SWAP_OVERLAY_MODE -> SwapOverlayMode.isOfferedOn(hint)
     }
 
@@ -148,9 +152,13 @@ enum class TapAction : IconAction {
      *  another mode switches it to Definitions, with one up in Definitions
      *  closes it ([com.playtranslate.ui.WordLookupSession]). The capture's
      *  own mode setting is not written. Offered on every language. */
-    TAP_TO_LOOKUP;
+    TAP_TO_LOOKUP,
+    /** NeonLens X: read the latest translation aloud
+     *  ([com.playtranslate.tts.SpokenTranslation]). */
+    READ_TRANSLATION;
 
     override fun titleRes(hint: HintTextKind): Int = when (this) {
+        READ_TRANSLATION -> R.string.nl_icon_action_read_translation
         OPEN_QUICK_MENU -> R.string.icon_action_open_quick_menu
         CAPTURE_SCREEN -> R.string.icon_action_capture_screen
         TOGGLE_AUTO_TRANSLATE -> R.string.icon_action_toggle_auto_translate
@@ -161,7 +169,7 @@ enum class TapAction : IconAction {
 
     override fun isOfferedOn(hint: HintTextKind): Boolean = when (this) {
         OPEN_QUICK_MENU, CAPTURE_SCREEN, TOGGLE_AUTO_TRANSLATE, CHANGE_GAME_LANGUAGE,
-        TAP_TO_LOOKUP -> true
+        TAP_TO_LOOKUP, READ_TRANSLATION -> true
         SWAP_OVERLAY_MODE -> SwapOverlayMode.isOfferedOn(hint)
     }
 

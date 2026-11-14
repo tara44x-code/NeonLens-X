@@ -606,6 +606,67 @@
                         android:layout_marginStart="@dimen/pt_row_h_padding"
                         android:background="?attr/ptDivider" />
 
+                    <!-- NeonLens X: Arabic dialect for the AI translators.
+                         Wired in CaptureOverlaySettingsActivity.setupArabicDialect. -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingHorizontal="@dimen/pt_row_h_padding"
+                        android:paddingVertical="@dimen/pt_row_v_padding">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/nl_dialect_title"
+                            style="@style/Text.PT.RowTitle" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/nl_dialect_subtitle"
+                            style="@style/Text.PT.RowSubtitle" />
+
+                        <RadioGroup
+                            android:id="@+id/rgArabicDialect"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:orientation="horizontal">
+
+                            <RadioButton
+                                android:id="@+id/rbDialectMsa"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:textColor="?attr/ptText"
+                                android:text="@string/nl_dialect_msa" />
+
+                            <RadioButton
+                                android:id="@+id/rbDialectIraqi"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:textColor="?attr/ptText"
+                                android:text="@string/nl_dialect_iraqi" />
+
+                            <RadioButton
+                                android:id="@+id/rbDialectEgyptian"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:textColor="?attr/ptText"
+                                android:text="@string/nl_dialect_egyptian" />
+                        </RadioGroup>
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginStart="@dimen/pt_row_h_padding"
+                        android:background="?attr/ptDivider" />
+
                     <!-- Filter furigana toggle (Japanese source only). Title +
                          checked state wired in
                          CaptureOverlaySettingsActivity.setupOverlaySection. Its

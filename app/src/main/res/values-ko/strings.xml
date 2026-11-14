@@ -334,7 +334,6 @@
     <string name="words_loading">단어 검색 중…</string>
 
     <string name="lens_loading">검색 중…</string>
-    <string name="lens_also_matches">다른 후보</string>
     <string name="load_more_count">더 불러오기(<xliff:g id="count" example="2">%1$d</xliff:g>)</string>
     <string name="section_other_matches">다른 후보</string>
 
@@ -1578,9 +1577,7 @@
 
     <string name="pt_cloud_translate_row_subtitle_no_key">최고의 유료 번역 모델 포함</string>
 
-    <string name="pt_cloud_key_label">클라이언트 키</string>
 
-    <string name="pt_cloud_key_hint">발급받은 키를 붙여넣으세요</string>
 
     <string name="pt_cloud_status_title">서비스</string>
 
