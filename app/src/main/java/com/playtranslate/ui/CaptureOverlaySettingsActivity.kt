@@ -1319,12 +1319,16 @@ class CaptureOverlaySettingsActivity : SettingsSubPageActivity() {
             refresh()
             restartLive()
         }
+        // The switch itself is not clickable (see settings_row_switch); the
+        // whole row is the tap target, as on the rows above.
+        row.setOnClickListener { toggle.toggle() }
         boldToggle.isChecked = prefs.overlayBoldText
         boldToggle.setOnCheckedChangeListener { _, checked ->
             prefs.overlayBoldText = checked
             refresh()
             restartLive()
         }
+        boldRow.setOnClickListener { boldToggle.toggle() }
         opacity.setRange(Prefs.OVERLAY_OPACITY_MIN, 100)
         opacity.value = prefs.overlayBgOpacity
         opacity.contentDescription = getString(R.string.nl_overlay_bg_opacity)
