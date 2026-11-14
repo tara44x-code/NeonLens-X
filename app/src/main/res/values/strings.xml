@@ -4911,4 +4911,12 @@
     <string name="pt_theme_mode_neon">Neon</string>
     <string name="nl_about_developer">Developer: مهند سات لنك</string>
     <string name="nl_about_version">Version: <xliff:g id="version" example="1.0.0">%1$s</xliff:g></string>
+    <string name="nl_icon_action_read_translation">Read translation aloud</string>
+    <string name="nl_speak_nothing">There is no translation to read yet.</string>
+    <string name="nl_speak_no_voice">No voice for your language. Install one in the phone\'s text-to-speech settings.</string>
+    <string name="nl_dialect_title">Arabic dialect</string>
+    <string name="nl_dialect_subtitle">Used by AI translators (Gemini, Claude, OpenAI) when translating into Arabic. Offline translation always uses standard Arabic.</string>
+    <string name="nl_dialect_msa">Standard</string>
+    <string name="nl_dialect_iraqi">Iraqi</string>
+    <string name="nl_dialect_egyptian">Egyptian</string>
 </resources>

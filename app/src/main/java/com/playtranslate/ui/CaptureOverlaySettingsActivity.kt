@@ -368,6 +368,7 @@ class CaptureOverlaySettingsActivity : SettingsSubPageActivity() {
         }
 
         setupOverlayStyle()
+        setupArabicDialect()
 
         // -- Filter furigana toggle (Japanese source only) --
         // Drops furigana from Japanese OCR before grouping (RubyFilter). Read
@@ -1348,6 +1349,27 @@ class CaptureOverlaySettingsActivity : SettingsSubPageActivity() {
             restartLive()
         }
         refresh()
+    }
+
+    /** NeonLens X: which Arabic the AI translators write. Takes effect on the
+     *  next translation; lines already translated keep their wording. */
+    private fun setupArabicDialect() {
+        val group = findViewById<android.widget.RadioGroup>(R.id.rgArabicDialect)
+        group.check(
+            when (prefs.arabicDialect) {
+                Prefs.ARABIC_DIALECT_IRAQI -> R.id.rbDialectIraqi
+                Prefs.ARABIC_DIALECT_EGYPTIAN -> R.id.rbDialectEgyptian
+                else -> R.id.rbDialectMsa
+            }
+        )
+        group.setOnCheckedChangeListener { _, checkedId ->
+            prefs.arabicDialect = when (checkedId) {
+                R.id.rbDialectIraqi -> Prefs.ARABIC_DIALECT_IRAQI
+                R.id.rbDialectEgyptian -> Prefs.ARABIC_DIALECT_EGYPTIAN
+                else -> Prefs.ARABIC_DIALECT_MSA
+            }
+            if (CaptureService.instance?.isLive == true) CaptureService.instance?.stopLive()
+        }
     }
 
     /** A row of round colour buttons; the selected one gets an accent ring. */

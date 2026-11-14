@@ -1628,6 +1628,7 @@ class OverlayUiController(
                     TapAction.SWAP_OVERLAY_MODE -> swapOverlayModeOrStartLive()
                     TapAction.CHANGE_GAME_LANGUAGE -> changeGameLanguage(display)
                     TapAction.TAP_TO_LOOKUP -> captureInDefinitions(displayId)
+                    TapAction.READ_TRANSLATION -> readTranslationAloud()
                 }
             }
             // True from a hold whose toggle, or whose capture, stopped
@@ -1696,6 +1697,7 @@ class OverlayUiController(
                     HoldAction.SWAP_OVERLAY_MODE -> swapOverlayModeOrStartLive()
                     HoldAction.CHANGE_GAME_LANGUAGE -> holdOpenedPicker = changeGameLanguage(display)
                     HoldAction.TAP_TO_LOOKUP -> holdStoppedLive = captureInDefinitions(displayId)
+                    HoldAction.READ_TRANSLATION -> readTranslationAloud()
                 }
             }
             icon.onHoldEnd = {
@@ -1710,7 +1712,8 @@ class OverlayUiController(
                     // hold above) therefore does none of them.
                     HoldAction.CAPTURE_SCREEN, HoldAction.OPEN_QUICK_MENU,
                     HoldAction.TOGGLE_AUTO_TRANSLATE, HoldAction.SWAP_OVERLAY_MODE,
-                    HoldAction.CHANGE_GAME_LANGUAGE, HoldAction.TAP_TO_LOOKUP -> Unit
+                    HoldAction.CHANGE_GAME_LANGUAGE, HoldAction.TAP_TO_LOOKUP,
+                    HoldAction.READ_TRANSLATION -> Unit
                 }
                 heldAction = null
                 holdStoppedLive = false
@@ -1738,7 +1741,8 @@ class OverlayUiController(
                     // afterwards, in the mode the swap left, as any drag does,
                     // and leaves a stopped one stopped, including one the
                     // toggle's stop hasn't reached yet (holdStoppedLive).
-                    HoldAction.TOGGLE_AUTO_TRANSLATE, HoldAction.SWAP_OVERLAY_MODE -> Unit
+                    HoldAction.TOGGLE_AUTO_TRANSLATE, HoldAction.SWAP_OVERLAY_MODE,
+                    HoldAction.READ_TRANSLATION -> Unit
                     // A switch of the game language stands, as the swap does.
                     // A picker this hold opened over the game closes, as the
                     // menu does: its full-screen window would stay up under
@@ -3027,6 +3031,11 @@ class OverlayUiController(
         }
         context.startActivity(intent)
         return wasLive
+    }
+
+    /** NeonLens X: the icon's "Read translation aloud" action. */
+    private fun readTranslationAloud() {
+        scope.launch { com.playtranslate.tts.SpokenTranslation.speakLatest(context) }
     }
 
     /**

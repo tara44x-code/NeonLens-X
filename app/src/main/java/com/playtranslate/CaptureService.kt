@@ -319,6 +319,8 @@ class CaptureService : Service() {
 
     internal fun emitResult(result: TranslationResult) {
         _panelState.value = PanelState.Result(result)
+        // NeonLens X: what "Read translation aloud" reads.
+        com.playtranslate.tts.SpokenTranslation.record(result.translatedText)
         // Deliberately NO commit to either record ([livePanelRecord],
         // [panelEmissions]) here: only screen-derived deliveries
         // ([translateAndSendToPanel], [emitPanelResult]) record. A deliberate

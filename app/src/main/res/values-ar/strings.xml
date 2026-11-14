@@ -2200,4 +2200,12 @@
     <string name="pt_theme_mode_neon">نيون</string>
     <string name="nl_about_developer">المطوّر: مهند سات لنك</string>
     <string name="nl_about_version">رقم الإصدار: <xliff:g id="version" example="1.0.0">%1$s</xliff:g></string>
+    <string name="nl_icon_action_read_translation">قراءة الترجمة بصوت</string>
+    <string name="nl_speak_nothing">لا توجد ترجمة لقراءتها بعد.</string>
+    <string name="nl_speak_no_voice">لا يوجد صوت للغتك. ثبّت صوتاً عربياً من إعدادات تحويل النص إلى كلام في الهاتف.</string>
+    <string name="nl_dialect_title">لهجة الترجمة العربية</string>
+    <string name="nl_dialect_subtitle">تعمل مع مترجمات الذكاء الاصطناعي (Gemini وClaude وOpenAI) عند الترجمة إلى العربية. الترجمة دون إنترنت تبقى بالفصحى.</string>
+    <string name="nl_dialect_msa">فصحى</string>
+    <string name="nl_dialect_iraqi">عراقي</string>
+    <string name="nl_dialect_egyptian">مصري</string>
 </resources>

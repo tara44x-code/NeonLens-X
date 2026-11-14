@@ -1308,6 +1308,15 @@ class Prefs internal constructor(
         get() = sp.getBoolean("overlay_bold_text", false)
         set(v) = sp.edit { putBoolean("overlay_bold_text", v) }
 
+    /** NeonLens X: the Arabic the AI translators (Gemini, Claude, OpenAI and
+     *  the on-device LLMs) write when the target language is Arabic. One of
+     *  [ARABIC_DIALECT_MSA] (default), [ARABIC_DIALECT_IRAQI],
+     *  [ARABIC_DIALECT_EGYPTIAN]. Other translators always write standard
+     *  Arabic. */
+    var arabicDialect: String
+        get() = sp.getString("nl_arabic_dialect", ARABIC_DIALECT_MSA) ?: ARABIC_DIALECT_MSA
+        set(v) = sp.edit { putString("nl_arabic_dialect", v) }
+
     /** Drop furigana (ruby) regions from Japanese OCR before grouping, so
      *  readings printed beside kanji are neither translated nor overlaid. See
      *  [com.playtranslate.ocr.core.RubyFilter] for the rule and its census.
@@ -2379,6 +2388,10 @@ class Prefs internal constructor(
 
         /** Id of the single saved "last drawn" region, see [rememberDrawnRegion]. */
         const val DRAWN_REGION_ID = "nl_last_drawn"
+
+        const val ARABIC_DIALECT_MSA = "msa"
+        const val ARABIC_DIALECT_IRAQI = "iq"
+        const val ARABIC_DIALECT_EGYPTIAN = "eg"
 
         val DEFAULT_REGION_LIST: List<RegionEntry> = listOf(
             RegionEntry("Full screen",  0.00f, 1.00f, id = "default_full"),

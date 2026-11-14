@@ -228,10 +228,23 @@ object LlmPromptTemplates {
     @Volatile
     var contextProvider: (source: String, target: String) -> String = { _, _ -> "" }
 
+    /** NeonLens X: an extra instruction for the target language — the
+     *  chosen Arabic dialect — or "" for none. Set from
+     *  [com.playtranslate.PlayTranslateApplication]; [target] is the target
+     *  language code. Appended to the system prompt. */
+    @Volatile
+    var styleProvider: (target: String) -> String = { "" }
+
+    private fun withStyle(prompt: String, target: String): String {
+        val extra = styleProvider(target.lowercase(Locale.ROOT))
+        return if (extra.isEmpty()) prompt else prompt + "\n\n" + extra
+    }
+
     @VisibleForTesting
     fun resetOverrides() {
         overrideProvider = { null }
         contextProvider = { _, _ -> "" }
+        styleProvider = { "" }
     }
 
     /** The raw template for [kind] — the user's override if saved, else the
@@ -242,7 +255,7 @@ object LlmPromptTemplates {
     /** The system-role prose for a single translation (also the persona
      *  portion of [batchSystemPrompt]). */
     fun systemPrompt(source: String, target: String): String =
-        substitute(effectiveTemplate(PromptKind.SYSTEM), languageValues(source, target))
+        withStyle(substitute(effectiveTemplate(PromptKind.SYSTEM), languageValues(source, target)), target)
 
     /** The user-turn prose wrapped around one text to translate. `{context}`
      *  resolves through [contextProvider] when [includeContext] is true and to
@@ -309,7 +322,7 @@ object LlmPromptTemplates {
     fun batchSystemPrompt(source: String, target: String): String {
         val values = languageValues(source, target)
         val persona = overrideProvider(PromptKind.SYSTEM) ?: DEFAULT_SYSTEM_PERSONA
-        return substitute(persona, values) + "\n\n" + substitute(BATCH_JSON_CONTRACT, values)
+        return withStyle(substitute(persona, values), target) + "\n\n" + substitute(BATCH_JSON_CONTRACT, values)
     }
 
     /** The cloud batch user message; [texts] ride along as a JSON array.
