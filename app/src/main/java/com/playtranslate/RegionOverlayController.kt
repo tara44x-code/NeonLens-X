@@ -365,7 +365,11 @@ class RegionOverlayController(
                 val dv = dragView ?: return@bar
                 // Unnamed: RegionEntry.displayName resolves the empty label to
                 // the generic "Capture region".
-                val drawnRegion = RegionEntry("", dv.topFraction, dv.bottomFraction, dv.leftFraction, dv.rightFraction)
+                // NeonLens X: saved, so the region survives closing the app.
+                val drawnRegion = Prefs(context).rememberDrawnRegion(
+                    display.displayId,
+                    RegionEntry("", dv.topFraction, dv.bottomFraction, dv.leftFraction, dv.rightFraction),
+                )
                 hideRegionEditor()
                 CaptureService.instance?.configureOverride(display.displayId, drawnRegion)
                 if (CaptureService.instance?.isLive == true) {

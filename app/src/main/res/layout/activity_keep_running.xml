@@ -70,6 +70,7 @@
 
             <!-- Sets the bug report apart from the settings above it. -->
             <View
+                android:id="@+id/dividerReportBug"
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
                 android:layout_marginTop="8dp"

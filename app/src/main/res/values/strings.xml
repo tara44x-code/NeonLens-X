@@ -4909,4 +4909,6 @@
     <string name="nl_overlay_color_choice">Colour %1$d</string>
     <string name="nl_based_on">NeonLens X is based on PlayTranslate (GPL-3.0). It is not the official PlayTranslate app.</string>
     <string name="pt_theme_mode_neon">Neon</string>
+    <string name="nl_about_developer">Developer: مهند سات لنك</string>
+    <string name="nl_about_version">Version: <xliff:g id="version" example="1.0.0">%1$s</xliff:g></string>
 </resources>

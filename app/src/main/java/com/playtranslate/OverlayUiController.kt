@@ -2216,8 +2216,10 @@ class OverlayUiController(
             toggleLiveFromOverlay()
         }
         menu.activeRegion = CaptureService.instance?.activeRegionForDisplay(display.displayId)
-        menu.onRegionSelected = { region ->
+        menu.onRegionSelected = { drawn ->
             dismissFloatingMenu()
+            // NeonLens X: saved, so the region survives closing the app.
+            val region = Prefs(context).rememberDrawnRegion(display.displayId, drawn)
             CaptureService.instance?.configureOverride(display.displayId, region)
             if (CaptureService.instance?.isLive == true) {
                 hideTranslationOverlay()

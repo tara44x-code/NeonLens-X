@@ -2252,26 +2252,9 @@ class MainActivity :
             .show()
     }
 
-    private fun maybeCheckForUpdates() {
-        // Only nudge for updates once fully set up. Gate on the readiness state
-        // (not the onboardingContainer view, which route() updates async): when
-        // this runs straight after refreshReadiness() the view may still be stale.
-        if (onboardingVm.state.value !is AppReadiness.Ready) return
-        // A validated APK from a previous session takes this resume cycle —
-        // one-tap install prompt instead of the debounced check.
-        if (updateInstaller.resumeIfPending()) return
-        // Returning from a "View release" browser detour re-shows the update
-        // dialog (the alert dismissed on pause; the debounce would block it).
-        if (updateInstaller.reshowIfPending()) return
-        lifecycleScope.launch {
-            val release = UpdateChecker.maybeCheck(this@MainActivity) ?: return@launch
-            if (!isInForeground || isFinishing || isDestroyed) return@launch
-            if (onboardingVm.state.value !is AppReadiness.Ready) return@launch
-            // 24h debounce timestamp was already committed inside
-            // UpdateChecker.maybeCheck — no per-dismissal bookkeeping needed.
-            updateInstaller.promptUpdate(release)
-        }
-    }
+    /** NeonLens X: the app never looks for or installs a new version of
+     *  itself. A new build is installed by hand. */
+    private fun maybeCheckForUpdates() = Unit
 
     /** Apply [current] readiness to the UI — show the onboarding pages (with the
      *  home surfaces hidden), or the steady-state home (surfaces restored). This

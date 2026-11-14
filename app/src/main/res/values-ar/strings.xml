@@ -2198,4 +2198,6 @@
     <string name="nl_overlay_color_choice">اللون %1$d</string>
     <string name="nl_based_on">NeonLens X مبني على PlayTranslate (GPL-3.0)، وليس تطبيق PlayTranslate الرسمي.</string>
     <string name="pt_theme_mode_neon">نيون</string>
+    <string name="nl_about_developer">المطوّر: مهند سات لنك</string>
+    <string name="nl_about_version">رقم الإصدار: <xliff:g id="version" example="1.0.0">%1$s</xliff:g></string>
 </resources>

@@ -2047,6 +2047,19 @@ class Prefs internal constructor(
         }
     }
 
+    /** NeonLens X: keep a region the user drew over the game. It is stored
+     *  in the region list under one fixed id (a newer drawing replaces the
+     *  older one) and selected for [displayId], so it is still the active
+     *  region after the app or the service restarts. Returns the stored
+     *  entry. */
+    fun rememberDrawnRegion(displayId: Int, region: RegionEntry): RegionEntry {
+        val stored = region.copy(id = DRAWN_REGION_ID)
+        val list = getRegionList().filter { it.id != DRAWN_REGION_ID } + stored
+        setRegionList(list)
+        setSelectedRegionIdForDisplay(displayId, DRAWN_REGION_ID)
+        return stored
+    }
+
     fun setRegionList(list: List<RegionEntry>) {
         val arr = JSONArray()
         list.forEach { e ->
@@ -2363,6 +2376,9 @@ class Prefs internal constructor(
             if (MainActivity.isInForeground && MainActivity.isInMultiWindowMode) return false
             return true
         }
+
+        /** Id of the single saved "last drawn" region, see [rememberDrawnRegion]. */
+        const val DRAWN_REGION_ID = "nl_last_drawn"
 
         val DEFAULT_REGION_LIST: List<RegionEntry> = listOf(
             RegionEntry("Full screen",  0.00f, 1.00f, id = "default_full"),
